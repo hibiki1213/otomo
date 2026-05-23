@@ -23,6 +23,9 @@ importers:
       react-dom:
         specifier: 19.0.0
         version: 19.0.0(react@19.0.0)
+      smplr:
+        specifier: ^0.26.0
+        version: 0.26.0
       soundfont-player:
         specifier: 0.12.0
         version: 0.12.0
@@ -365,6 +368,10 @@ packages:
     resolution: {integrity: sha512-Ou9I5Ft9WNcCbXrU9cMgPBcCK8LiwLqcbywW3t4oDV37n1pzpuNLsYiAV8eODnjbtQlSDwZ2cUEeQz4E54Hltg==}
     engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
 
+  smplr@0.26.0:
+    resolution: {integrity: sha512-01OLo4+RzHvE52aGx1Gh1uEbarIiLWYOQU+t+nYm3iUT4sADTv+M3SbClo4sjE2Q8Im/eKpxWKZRBD8RR8tAEw==}
+    engines: {node: '>=14.0.0'}
+
   soundfont-player@0.12.0:
     resolution: {integrity: sha512-8BJIsAt7h1PK3thSZDgF6zecgGhYkK74JnZO8WRZi3h34qG6H/DYlnv7cpRvL7Q9C8N6qld4Qwj7nJsX1gYjEA==}
 
@@ -655,6 +662,8 @@ snapshots:
       '@img/sharp-win32-ia32': 0.34.5
       '@img/sharp-win32-x64': 0.34.5
     optional: true
+
+  smplr@0.26.0: {}
 
   soundfont-player@0.12.0:
     dependencies:
