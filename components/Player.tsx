@@ -17,6 +17,7 @@ import {
   type KeySignatureEvent,
   type MarkerEvent,
 } from "@/lib/midiEngine";
+import { gmInstrumentGroups, prettyInstrumentName } from "@/lib/gm";
 
 /* ---------- tempo / time-signature map ---------- */
 
@@ -189,6 +190,8 @@ export default function Player() {
   const [position, setPosition] = useState(0);
   const [volume, setVolume] = useState(0.9);
   const [muted, setMuted] = useState<boolean[]>([]);
+  const [trackPrograms, setTrackPrograms] = useState<number[]>([]);
+  const [loadingTracks, setLoadingTracks] = useState<Set<number>>(new Set());
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressLabel, setProgressLabel] = useState("");
@@ -224,6 +227,8 @@ export default function Player() {
         const info = await engine.load(buffer, file.name);
         setSong(info);
         setMuted(new Array(info.tracks.length).fill(false));
+        setTrackPrograms(info.tracks.map((t) => t.program));
+        setLoadingTracks(new Set());
         setPosition(0);
         engine.setMasterVolume(volume);
       } catch {
@@ -308,53 +313,123 @@ export default function Player() {
     engineRef.current?.setMasterVolume(v);
   }, []);
 
+  const changeTrackProgram = useCallback(
+    async (trackIndex: number, program: number) => {
+      const engine = engineRef.current;
+      if (!engine) return;
+      setTrackPrograms((prev) => {
+        const next = [...prev];
+        next[trackIndex] = program;
+        return next;
+      });
+      setLoadingTracks((prev) => {
+        const next = new Set(prev);
+        next.add(trackIndex);
+        return next;
+      });
+      try {
+        await engine.setTrackProgram(trackIndex, program);
+      } finally {
+        setLoadingTracks((prev) => {
+          const next = new Set(prev);
+          next.delete(trackIndex);
+          return next;
+        });
+      }
+    },
+    []
+  );
+
+  const instrumentGroups = useMemo(() => gmInstrumentGroups(), []);
+
   const trackList = useMemo(() => {
     if (!song) return null;
     return (
       <div className="tracks">
         <div className="tracks-head">トラック · {song.tracks.length}</div>
-        {song.tracks.map((track) => (
-          <div className="track-row" key={track.index}>
-            <span
-              className="track-swatch"
-              style={{
-                background: track.color,
-                opacity: muted[track.index] ? 0.3 : 1,
-              }}
-            />
-            <div className="track-info">
-              <div
-                className="track-name"
-                style={{ opacity: muted[track.index] ? 0.5 : 1 }}
-              >
-                {track.name}
-              </div>
-              <div className="track-detail">
-                {track.instrument}
-                {track.programs.length > 1 && (
-                  <span style={{ color: "var(--accent)", marginLeft: 4 }}>
-                    +{track.programs.length - 1}
-                  </span>
+        {song.tracks.map((track) => {
+          const currentProgram =
+            trackPrograms[track.index] ?? track.program;
+          const isLoading = loadingTracks.has(track.index);
+          const instrumentLabel = track.isPercussion
+            ? track.instrument
+            : prettyInstrumentName(currentProgram);
+          return (
+            <div className="track-row" key={track.index}>
+              <span
+                className="track-swatch"
+                style={{
+                  background: track.color,
+                  opacity: muted[track.index] ? 0.3 : 1,
+                }}
+              />
+              <div className="track-info">
+                <div
+                  className="track-name"
+                  style={{ opacity: muted[track.index] ? 0.5 : 1 }}
+                >
+                  {track.name}
+                </div>
+                <div className="track-detail">
+                  {instrumentLabel}
+                  {isLoading && (
+                    <span style={{ color: "var(--accent)", marginLeft: 6 }}>
+                      読込中…
+                    </span>
+                  )}
+                  {" · "}
+                  CH {track.channel + 1}
+                  {" · "}
+                  {track.noteCount} notes
+                </div>
+                {!track.isPercussion && (
+                  <select
+                    className="track-instrument-select"
+                    value={currentProgram}
+                    disabled={isLoading}
+                    onChange={(e) =>
+                      changeTrackProgram(
+                        track.index,
+                        parseInt(e.target.value, 10)
+                      )
+                    }
+                    aria-label="楽器を変更"
+                    title="この楽器に変更"
+                  >
+                    {instrumentGroups.map((group) => (
+                      <optgroup key={group.family} label={group.family}>
+                        {group.instruments.map((inst) => (
+                          <option key={inst.program} value={inst.program}>
+                            {inst.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
                 )}
-                {" · "}
-                CH {track.channel + 1}
-                {" · "}
-                {track.noteCount} notes
               </div>
+              <button
+                className={`mute-btn${muted[track.index] ? " muted" : ""}`}
+                onClick={() => toggleMute(track.index)}
+                aria-label={muted[track.index] ? "ミュート解除" : "ミュート"}
+                title={muted[track.index] ? "ミュート中" : "ミュート"}
+              >
+                M
+              </button>
             </div>
-            <button
-              className={`mute-btn${muted[track.index] ? " muted" : ""}`}
-              onClick={() => toggleMute(track.index)}
-              aria-label={muted[track.index] ? "ミュート解除" : "ミュート"}
-              title={muted[track.index] ? "ミュート中" : "ミュート"}
-            >
-              M
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
-  }, [song, muted, toggleMute]);
+  }, [
+    song,
+    muted,
+    toggleMute,
+    trackPrograms,
+    loadingTracks,
+    instrumentGroups,
+    changeTrackProgram,
+  ]);
 
   const isPlaying = state === "playing";
 

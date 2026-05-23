@@ -166,3 +166,33 @@ export function instrumentFamily(program: number): string {
   const idx = Math.min(FAMILY_LABELS.length - 1, Math.floor(program / 8));
   return FAMILY_LABELS[idx] ?? "楽器";
 }
+
+export interface InstrumentChoice {
+  program: number;
+  name: string;
+}
+
+export interface InstrumentFamilyGroup {
+  family: string;
+  instruments: InstrumentChoice[];
+}
+
+/** 16 GM ファミリー × 各 8 楽器のグループ一覧（楽器ピッカー用）。 */
+export function gmInstrumentGroups(): InstrumentFamilyGroup[] {
+  const groups: InstrumentFamilyGroup[] = [];
+  for (let f = 0; f < FAMILY_LABELS.length; f++) {
+    const instruments: InstrumentChoice[] = [];
+    for (let i = 0; i < 8; i++) {
+      const program = f * 8 + i;
+      if (program > 127) break;
+      instruments.push({ program, name: prettyInstrumentName(program) });
+    }
+    groups.push({ family: FAMILY_LABELS[f], instruments });
+  }
+  return groups;
+}
+
+/** ピアノ系プログラム（0=Acoustic Grand 〜 7=Clavinet）かどうか。 */
+export function isPianoProgram(program: number): boolean {
+  return program >= 0 && program <= 7;
+}

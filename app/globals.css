@@ -702,6 +702,37 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.01em;
 }
 
+.track-instrument-select {
+  margin-top: 4px;
+  width: 100%;
+  max-width: 220px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 0.1s ease, background 0.1s ease;
+}
+
+.track-instrument-select:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--hover);
+}
+
+.track-instrument-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.track-instrument-select:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
 .mute-btn {
   width: 24px;
   height: 24px;

@@ -1,9 +1,10 @@
-import type { SoundfontPlayer } from "soundfont-player";
+import type { Smplr, SampleLoader as SampleLoaderT } from "smplr";
 import { DrumSynth } from "./drumSynth";
 import {
   soundfontNameForProgram,
   prettyInstrumentName,
   instrumentFamily,
+  isPianoProgram,
 } from "./gm";
 
 export type PlayerState =
@@ -36,6 +37,8 @@ export interface TrackInfo {
   noteCount: number;
   color: string;
   programs: number[];
+  /** ユーザーが上書きした楽器プログラム（未指定なら元のMIDIの値）。 */
+  program: number;
 }
 
 export interface TempoEvent {
@@ -150,14 +153,6 @@ const clamp = (lo: number, v: number, hi: number) =>
 
 const LOOKAHEAD = 0.3;
 
-interface ScheduledVoice {
-  trackIndex: number;
-  note: NoteEvent;
-  audioNode: AudioNode | null;
-  source: AudioBufferSourceNode | null;
-  stopAt: number;
-}
-
 export class MidiEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -175,10 +170,15 @@ export class MidiEngine {
 
   // Per-track flag: true if percussion (use DrumSynth instead of soundfont).
   private isPercussionTrack: boolean[] = [];
-  // Shared Players by program number — one Player per unique program across
-  // the whole file. Notes are re-routed per-track via Web Audio node connects.
-  private programPlayers = new Map<number, SoundfontPlayer | null>();
-  private programDummyDest: GainNode | null = null;
+  // Per-track smplr instance (null for percussion or while (re)loading).
+  // Each track owns its instrument so that the audio output can be routed to
+  // the track's signal chain; the underlying sample buffers are shared via
+  // the SampleLoader so a swapped piano doesn't re-fetch the bank.
+  private trackInstruments: (Smplr | null)[] = [];
+  // Track override program (mutated by setTrackProgram). For percussion this
+  // is left at the original value but unused.
+  private trackPrograms: number[] = [];
+  private sampleLoader: SampleLoaderT | null = null;
   private drum: DrumSynth | null = null;
   private reverbReturn: GainNode | null = null;
 
@@ -198,6 +198,8 @@ export class MidiEngine {
   onState?: (s: PlayerState) => void;
   onTick?: (position: number) => void;
   onEnd?: () => void;
+  /** トラックの楽器変更が完了したときに呼ばれる。UI 更新用。 */
+  onTrackProgramChanged?: (trackIndex: number, program: number) => void;
 
   private setState(s: PlayerState) {
     this.state = s;
@@ -210,8 +212,7 @@ export class MidiEngine {
 
     const { Midi } = await import("@tonejs/midi");
     const midiFile = await import("midi-file");
-    const sfModule = await import("soundfont-player");
-    const Soundfont = sfModule.default ?? sfModule;
+    const smplr = await import("smplr");
 
     const midi = new Midi(buffer);
     this.duration = midi.duration;
@@ -330,7 +331,6 @@ export class MidiEngine {
             else if (ct === 100) rpnState[ch].lsb = v;
             else if (ct === 6) {
               rpnState[ch].dataMsb = v;
-              // RPN 0 = pitch bend range, MSB = semitones
               if (rpnState[ch].msb === 0 && rpnState[ch].lsb === 0) {
                 bendRangeSemitones[ch] = v;
               }
@@ -370,6 +370,11 @@ export class MidiEngine {
     reverbReturn.connect(master);
     this.reverbReturn = reverbReturn;
 
+    // Shared sample loader — buffers fetched by one track's instrument are
+    // reused if another track loads the same instrument (e.g. swapping a
+    // second track to the same piano doesn't re-download samples).
+    this.sampleLoader = smplr.SampleLoader(ctx);
+
     /* ----- per-track signal chain ----- */
     const sourceTracks = midi.tracks.filter((t) => t.notes.length > 0);
 
@@ -381,14 +386,15 @@ export class MidiEngine {
     this.panNodes = [];
     this.reverbSends = [];
     this.isPercussionTrack = [];
-    this.programPlayers = new Map();
+    this.trackInstruments = [];
+    this.trackPrograms = [];
     this.tracksData = [];
     this.muted = [];
 
     const tracks: TrackInfo[] = [];
     let minMidi = 127;
     let maxMidi = 0;
-    const loadJobs: Promise<void>[] = [];
+    const loadJobs: Promise<unknown>[] = [];
 
     sourceTracks.forEach((track, index) => {
       const color = TRACK_COLORS[index % TRACK_COLORS.length];
@@ -399,11 +405,7 @@ export class MidiEngine {
       // Build per-track CC arrays from low-level pass (channel-scoped).
       // Note on programs: we deliberately do NOT use the channel-scoped
       // programChanges here, because orchestral Format-1 files often have
-      // multiple "tracks" sharing one channel (one with notes + several
-      // metadata-only label tracks), and channel-scoped programs would
-      // bleed across them — giving wrong instruments. @tonejs/midi's
-      // `track.instrument.number` is already derived from the FIRST
-      // programChange in this raw track's own events, so it's reliable.
+      // multiple "tracks" sharing one channel.
       const lc = lowChannel[channel] ?? {
         programChanges: [],
         channelAftertouch: [],
@@ -413,8 +415,6 @@ export class MidiEngine {
       const programChanges: ProgramChange[] = [{ time: 0, program }];
       const programs = [program];
 
-      // Build pitch bend timeline. @tonejs/midi exposes the raw 14-bit
-      // value (-8192..8191) from midi-file. Normalize to -1..1.
       const pitchBends: BendPoint[] = track.pitchBends.map((p) => ({
         time: p.time,
         value: clamp(-1, p.value / 8192, 1),
@@ -459,7 +459,7 @@ export class MidiEngine {
       const modulationCC = getCC(1);
       const aftertouchCC = lc.channelAftertouch.slice();
 
-      // Instrument
+      // Instrument label
       const name =
         track.name?.trim() ||
         (isPercussion ? "ドラム" : `トラック ${index + 1}`);
@@ -483,7 +483,6 @@ export class MidiEngine {
       };
       this.tracksData.push(data);
 
-      // Notes
       const trackNotes: NoteEvent[] = track.notes.map((n) => ({
         trackIndex: index,
         midi: n.midi,
@@ -493,7 +492,6 @@ export class MidiEngine {
         velocity: clamp(0.05, n.velocity, 1),
         program: programAtTime(programChanges, n.time),
       }));
-      // Apply sustain pedal extension
       applySustainPedal(trackNotes, pedalCC);
 
       for (const note of trackNotes) {
@@ -503,8 +501,24 @@ export class MidiEngine {
       }
 
       this.isPercussionTrack.push(isPercussion);
-      // Programs are loaded ONCE per unique program after this loop, not
-      // per track — see the dedup pass below.
+      this.trackPrograms.push(program);
+
+      // Build a smplr instrument for this track. Piano-family programs (0-7)
+      // use SplendidGrandPiano (Salamander Grand Piano samples) for a much
+      // richer sound than the soundfont-player MusyngKite bank. Other programs
+      // fall back to the smplr Soundfont loader (MusyngKite by default).
+      let inst: Smplr | null = null;
+      if (!isPercussion) {
+        inst = buildInstrumentFor(
+          smplr,
+          ctx,
+          program,
+          trackInput,
+          this.sampleLoader!
+        );
+        loadJobs.push(inst.ready.catch(() => undefined));
+      }
+      this.trackInstruments.push(inst);
 
       tracks.push({
         index,
@@ -516,51 +530,11 @@ export class MidiEngine {
         noteCount: track.notes.length,
         color,
         programs,
+        program,
       });
     });
 
     this.notes.sort((a, b) => a.time - b.time);
-
-    /* Deduplicate programs across all tracks and load each soundfont ONCE.
-     * For a large orchestral file with 50+ tracks we go from 50+ soundfont
-     * loads (each independently decoding the same MP3 bank) down to ~10
-     * unique programs — the difference between hanging and loading. */
-    const dummy = ctx.createGain();
-    dummy.gain.value = 0;
-    // Don't connect dummy to anything: it acts as a sink that goes nowhere
-    // until we re-route per-note nodes to the per-track signal chain.
-    this.programDummyDest = dummy;
-
-    const uniquePrograms = new Set<number>();
-    for (let i = 0; i < this.tracksData.length; i++) {
-      if (this.isPercussionTrack[i]) continue;
-      for (const p of this.tracksData[i].programs) {
-        uniquePrograms.add(p);
-      }
-    }
-
-    for (const prog of uniquePrograms) {
-      this.programPlayers.set(prog, null);
-      loadJobs.push(
-        Soundfont.instrument(ctx, soundfontNameForProgram(prog), {
-          soundfont: "MusyngKite",
-          format: "mp3",
-          destination: dummy,
-        })
-          .then((player) => {
-            this.programPlayers.set(prog, player);
-          })
-          .catch(() =>
-            Soundfont.instrument(ctx, "acoustic_grand_piano", {
-              destination: dummy,
-            })
-              .then((player) => {
-                this.programPlayers.set(prog, player);
-              })
-              .catch(() => undefined)
-          )
-      );
-    }
 
     await Promise.all(loadJobs);
 
@@ -659,6 +633,62 @@ export class MidiEngine {
     if (gain) gain.gain.value = mutedState ? 0 : 1;
   }
 
+  /**
+   * Swap the smplr instrument for a track at runtime. Percussion tracks
+   * cannot be changed (use DrumSynth and have no notion of "program").
+   * Notes already scheduled within the lookahead window keep their current
+   * voices; subsequent notes play through the new instrument.
+   */
+  async setTrackProgram(trackIndex: number, program: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (
+      trackIndex < 0 ||
+      trackIndex >= this.trackInstruments.length ||
+      this.isPercussionTrack[trackIndex]
+    ) {
+      return;
+    }
+    const old = this.trackInstruments[trackIndex];
+    this.trackInstruments[trackIndex] = null;
+    try {
+      old?.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      old?.dispose();
+    } catch {
+      /* ignore */
+    }
+
+    const smplr = await import("smplr");
+    const trackInput = this.trackInputs[trackIndex];
+    const loader = this.sampleLoader;
+    if (!trackInput || !loader) return;
+    const inst = buildInstrumentFor(smplr, ctx, program, trackInput, loader);
+    this.trackInstruments[trackIndex] = inst;
+    this.trackPrograms[trackIndex] = program;
+    // Update every note belonging to this track so the piano-roll labelling
+    // and scheduleAhead's playNote use the new program.
+    for (const n of this.notes) {
+      if (n.trackIndex === trackIndex) n.program = program;
+    }
+    this.tracksData[trackIndex].programs = [program];
+
+    try {
+      await inst.ready;
+    } catch {
+      /* ignore — instrument left in unloaded state, notes just won't sound */
+    }
+    this.onTrackProgramChanged?.(trackIndex, program);
+  }
+
+  /** Read-only snapshot of the current program for each track. */
+  getTrackPrograms(): number[] {
+    return this.trackPrograms.slice();
+  }
+
   position(): number {
     if (!this.ctx) return 0;
     if (this.state === "playing") {
@@ -695,14 +725,12 @@ export class MidiEngine {
       transform: (v: number) => number
     ) => {
       param.cancelScheduledValues(now);
-      // Find current value at fromTime
       let v = defaultValue;
       for (const e of events) {
         if (e.time <= fromTime + epsilon) v = transform(e.value);
         else break;
       }
       param.setValueAtTime(v, Math.max(now, baseAudio + fromTime));
-      // Schedule remaining events after fromTime
       for (const e of events) {
         if (e.time <= fromTime + epsilon) continue;
         const at = baseAudio + e.time;
@@ -740,7 +768,6 @@ export class MidiEngine {
     const tdata = this.tracksData[note.trackIndex];
 
     if (this.isPercussionTrack[note.trackIndex]) {
-      // Percussion: trigger the drum synth through trackInput
       if (this.drum) {
         this.drum.trigger(
           note.midi,
@@ -752,60 +779,33 @@ export class MidiEngine {
       return;
     }
 
-    const player = this.programPlayers.get(note.program) ?? null;
-    if (!player) return;
+    const inst = this.trackInstruments[note.trackIndex];
+    if (!inst) return;
 
-    const duration = note.effectiveDuration;
-    const node = player.play(midiToNoteName(note.midi), when, {
-      duration,
-      gain: note.velocity,
-    }) as unknown as
-      | (AudioNode & {
-          source?: AudioBufferSourceNode;
-          stop?: (when: number) => void;
-        })
-      | undefined;
-
-    if (!node?.source) return;
-
-    // Re-route the voice from the shared Player's output to this track's
-    // input. Each note's gain node is created fresh by soundfont-player,
-    // so disconnecting it doesn't affect other simultaneously-playing notes.
-    try {
-      node.disconnect();
-    } catch {
-      /* ignore */
-    }
-    node.connect(this.trackInputs[note.trackIndex]);
-
-    // Apply pitch bend automation across the note's lifetime
+    // Pitch bend value at note start, converted to cents. smplr does not
+    // expose the voice's detune AudioParam, so we can't animate bend across
+    // the note — but capturing the start-of-note value covers the common
+    // case (a bend set before the note plays).
+    let detuneCents = 0;
     if (tdata.pitchBends.length > 0) {
-      applyBendToVoice(
-        node.source.detune,
-        tdata.pitchBends,
-        note.time,
-        note.time + duration,
-        this.audioStartTime,
-        tdata.bendRangeSemitones
-      );
+      let v = 0;
+      for (const b of tdata.pitchBends) {
+        if (b.time <= note.time + 0.0001) v = b.value;
+        else break;
+      }
+      detuneCents = v * tdata.bendRangeSemitones * 100;
     }
 
-    // Modulation (CC1) → simple LFO vibrato attached to this voice
-    const modulationActive = anyCCActive(
-      tdata.modulation,
-      note.time,
-      note.time + duration
-    );
-    if (modulationActive) {
-      attachVibrato(
-        ctx,
-        node.source,
-        tdata.modulation,
-        note.time,
-        note.time + duration,
-        this.audioStartTime,
-        when
-      );
+    try {
+      inst.start({
+        note: note.midi,
+        time: when,
+        duration: note.effectiveDuration,
+        velocity: Math.round(clamp(1, note.velocity * 127, 127)),
+        detune: detuneCents,
+      });
+    } catch {
+      /* ignore — instrument may have been disposed mid-schedule */
     }
   }
 
@@ -822,9 +822,9 @@ export class MidiEngine {
   }
 
   private cancelAll() {
-    for (const player of this.programPlayers.values()) {
+    for (const inst of this.trackInstruments) {
       try {
-        player?.stop();
+        inst?.stop();
       } catch {
         /* ignore */
       }
@@ -869,6 +869,13 @@ export class MidiEngine {
 
   private disposeAudio() {
     this.cancelAll();
+    for (const inst of this.trackInstruments) {
+      try {
+        inst?.dispose();
+      } catch {
+        /* ignore */
+      }
+    }
     if (this.ctx) {
       this.ctx.close().catch(() => undefined);
     }
@@ -883,8 +890,9 @@ export class MidiEngine {
     this.panNodes = [];
     this.reverbSends = [];
     this.isPercussionTrack = [];
-    this.programPlayers = new Map();
-    this.programDummyDest = null;
+    this.trackInstruments = [];
+    this.trackPrograms = [];
+    this.sampleLoader = null;
     this.notes = [];
     this.tracksData = [];
     this.muted = [];
@@ -892,6 +900,27 @@ export class MidiEngine {
 }
 
 /* ---------- helpers ---------- */
+
+function buildInstrumentFor(
+  smplr: typeof import("smplr"),
+  ctx: AudioContext,
+  program: number,
+  destination: AudioNode,
+  loader: SampleLoaderT
+): Smplr {
+  if (isPianoProgram(program)) {
+    return smplr.SplendidGrandPiano(ctx, {
+      destination,
+      loader,
+    });
+  }
+  return smplr.Soundfont(ctx, {
+    instrument: soundfontNameForProgram(program),
+    kit: "MusyngKite",
+    destination,
+    loader,
+  });
+}
 
 function programAtTime(
   changes: ProgramChange[],
@@ -907,12 +936,10 @@ function programAtTime(
 
 /**
  * Extends a note's `effectiveDuration` whenever the sustain pedal (CC64) is
- * held past the note's natural noteOff. The note is released at the first
- * pedal-down→up transition that occurs at or after the note's natural end.
+ * held past the note's natural noteOff.
  */
 function applySustainPedal(notes: NoteEvent[], pedal: CCPoint[]) {
   if (pedal.length === 0) return;
-  // Convert to on/off transitions
   const transitions: { time: number; on: boolean }[] = [];
   let prevOn = false;
   for (const p of pedal) {
@@ -924,19 +951,16 @@ function applySustainPedal(notes: NoteEvent[], pedal: CCPoint[]) {
   }
   for (const note of notes) {
     const naturalEnd = note.time + note.duration;
-    // Was the pedal held down at the natural noteOff time?
     let pedalDown = false;
     let nextRelease = -1;
     for (const tr of transitions) {
       if (tr.time <= naturalEnd + 0.001) {
         pedalDown = tr.on;
       } else {
-        // Look for first pedal-off transition after naturalEnd
         if (pedalDown && !tr.on) {
           nextRelease = tr.time;
           break;
         } else if (!pedalDown) {
-          // pedal currently up — nothing more to do
           break;
         }
       }
@@ -945,101 +969,6 @@ function applySustainPedal(notes: NoteEvent[], pedal: CCPoint[]) {
       note.effectiveDuration = nextRelease - note.time;
     }
   }
-}
-
-function anyCCActive(events: CCPoint[], start: number, end: number): boolean {
-  if (events.length === 0) return false;
-  // Find value at start
-  let v = events[0].value;
-  for (const e of events) {
-    if (e.time <= start) v = e.value;
-    else break;
-  }
-  if (v > 0.001) return true;
-  // Any nonzero within window?
-  for (const e of events) {
-    if (e.time > start && e.time < end && e.value > 0.001) return true;
-  }
-  return false;
-}
-
-function applyBendToVoice(
-  detuneParam: AudioParam,
-  bends: BendPoint[],
-  noteStart: number,
-  noteEnd: number,
-  audioStartTime: number,
-  rangeSemitones: number
-) {
-  // Find bend value at noteStart
-  let initial = 0;
-  let firstIdx = bends.length;
-  for (let i = 0; i < bends.length; i++) {
-    if (bends[i].time <= noteStart + 0.0001) {
-      initial = bends[i].value;
-      firstIdx = i + 1;
-    } else {
-      break;
-    }
-  }
-  const cents0 = initial * rangeSemitones * 100;
-  detuneParam.setValueAtTime(cents0, audioStartTime + noteStart);
-  for (let i = firstIdx; i < bends.length; i++) {
-    const b = bends[i];
-    if (b.time >= noteEnd) break;
-    detuneParam.linearRampToValueAtTime(
-      b.value * rangeSemitones * 100,
-      audioStartTime + b.time
-    );
-  }
-}
-
-function attachVibrato(
-  ctx: AudioContext,
-  source: AudioBufferSourceNode,
-  modulation: CCPoint[],
-  noteStart: number,
-  noteEnd: number,
-  audioStartTime: number,
-  when: number
-) {
-  const lfo = ctx.createOscillator();
-  lfo.frequency.value = 5.5;
-  const depth = ctx.createGain();
-  depth.gain.value = 0;
-  lfo.connect(depth);
-  depth.connect(source.detune);
-  lfo.start(when);
-  lfo.stop(audioStartTime + noteEnd + 0.05);
-
-  // Automate depth (cents) from CC1
-  let initial = 0;
-  let firstIdx = modulation.length;
-  for (let i = 0; i < modulation.length; i++) {
-    if (modulation[i].time <= noteStart + 0.0001) {
-      initial = modulation[i].value;
-      firstIdx = i + 1;
-    } else {
-      break;
-    }
-  }
-  // Max vibrato depth: ~50 cents at full modulation
-  const MAX_CENTS = 50;
-  depth.gain.setValueAtTime(initial * MAX_CENTS, audioStartTime + noteStart);
-  for (let i = firstIdx; i < modulation.length; i++) {
-    const m = modulation[i];
-    if (m.time >= noteEnd) break;
-    depth.gain.linearRampToValueAtTime(
-      m.value * MAX_CENTS,
-      audioStartTime + m.time
-    );
-  }
-}
-
-function midiToNoteName(midi: number): string {
-  const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-  const octave = Math.floor(midi / 12) - 1;
-  return `${names[midi % 12]}${octave}`;
 }
 
 function makeImpulseResponse(
@@ -1060,9 +989,7 @@ function makeImpulseResponse(
   return buf;
 }
 
-// Re-export key-name helper for UI
 export function keySignatureLabel(k: KeySignatureEvent): string {
-  // @tonejs/midi already returns key as a sharp/flat name like "F" or "C#"
   const name = k.key || "C";
   return `${name} ${k.scale === "major" ? "Major" : "Minor"}`;
 }
