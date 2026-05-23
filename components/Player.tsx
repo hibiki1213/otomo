@@ -1764,7 +1764,9 @@ function KeyboardView({
 
 /* ---------- score view (VexFlow) ---------- */
 
-const SCORE_BARS = 2;
+const SCORE_BARS_MIN = 1;
+const SCORE_BARS_MAX = 16;
+const SCORE_BARS_DEFAULT = 4;
 
 function ScoreView({
   song,
@@ -1779,7 +1781,6 @@ function ScoreView({
 }) {
   void _onSeek;
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const playheadRef = useRef<HTMLDivElement | null>(null);
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
   const [width, setWidth] = useState(800);
@@ -1788,6 +1789,14 @@ function ScoreView({
   const [currentBarIdx, setCurrentBarIdx] = useState(0);
   /** Tracks visible in the score view. `null` = all tracks. */
   const [scoreTracks, setScoreTracks] = useState<Set<number> | null>(null);
+  const [barsPerPage, setBarsPerPage] = useState(SCORE_BARS_DEFAULT);
+  /** Per-note x positions captured from VexFlow after each static render.
+   * Used by the playhead rAF to interpolate position exactly along the
+   * laid-out beats, regardless of clef/key-sig widths or tempo changes. */
+  const noteAnchorsRef = useRef<{ beat: number; x: number }[]>([]);
+  /** Playhead SVG element, re-created on every static render because VexFlow
+   * clears the host SVG. Updated by the rAF effect via setAttribute. */
+  const playheadSvgRef = useRef<SVGLineElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1841,19 +1850,32 @@ function ScoreView({
     return () => cancelAnimationFrame(raf);
   }, [tempoMap, barMap, getLivePosition]);
 
+  /* Snap the window to a "page" of `barsPerPage` bars so that the playhead
+   * moves across the visible bars instead of every bar shifting at once. */
   const win = useMemo(() => {
-    const barIdx = Math.min(currentBarIdx, barMap.bars.length - 1);
-    const startBar = barMap.bars[barIdx];
-    const endBarIdx = Math.min(barMap.bars.length - 1, barIdx + SCORE_BARS);
+    const totalBars = barMap.bars.length;
+    const cur = Math.min(currentBarIdx, totalBars - 1);
+    const pageStartIdx =
+      Math.floor(cur / barsPerPage) * barsPerPage;
+    const safeStart = Math.min(pageStartIdx, totalBars - 1);
+    const startBar = barMap.bars[safeStart];
+    const endBarIdx = Math.min(totalBars - 1, safeStart + barsPerPage);
     const startBeat = startBar.beat;
     const endBeat =
-      endBarIdx < barMap.bars.length - 1
+      endBarIdx < totalBars - 1
         ? barMap.bars[endBarIdx].beat
         : tempoMap.totalBeats;
     const startTime = beatToTime(tempoMap, startBeat);
     const endTime = beatToTime(tempoMap, endBeat);
-    return { barIdx, startBar, startBeat, endBeat, startTime, endTime };
-  }, [currentBarIdx, tempoMap, barMap]);
+    return {
+      barIdx: safeStart,
+      startBar,
+      startBeat,
+      endBeat,
+      startTime,
+      endTime,
+    };
+  }, [currentBarIdx, barsPerPage, tempoMap, barMap]);
 
   const currentKey = useMemo(() => {
     if (!song.keySignatures.length) return null;
@@ -1890,17 +1912,29 @@ function ScoreView({
         StaveConnector,
       } = vex;
 
+      // Compute slot count up-front so we can size the SVG appropriately.
+      const totalBeats0 = win.endBeat - win.startBeat;
+      const slotsPerBeat = 4;
+      const totalSlots = Math.max(1, Math.round(totalBeats0 * slotsPerBeat));
+
       const renderer = new Renderer(el, Renderer.Backends.SVG);
       const h = 320;
-      renderer.resize(width, h);
+      // VexFlow has a minimum width per note (accidentals, ledger lines etc.)
+      // For dense pages this exceeds the viewport; we render at a generous
+      // natural width then scale the SVG via viewBox to fit the container.
+      const minPxPerSlot = 22;
+      const headerW = 130;
+      const naturalWidth = Math.max(
+        width,
+        Math.round(headerW + totalSlots * minPxPerSlot + 40)
+      );
+      renderer.resize(naturalWidth, h);
       const ctx = renderer.getContext();
       ctx.setFillStyle("#14161a");
       ctx.setStrokeStyle("#14161a");
 
       const padding = 16;
-      const staveWidth = width - padding * 2;
-      // Leave 70px headroom above the treble stave and ~80px below the bass
-      // stave so high / low ledger-line notes don't get clipped.
+      const staveWidth = naturalWidth - padding * 2;
       const trebleStave = new Stave(padding, 70, staveWidth);
       const bassStave = new Stave(padding, 180, staveWidth);
       trebleStave.addClef("treble");
@@ -1928,10 +1962,6 @@ function ScoreView({
         .setContext(ctx)
         .draw();
 
-      const totalBeats = win.endBeat - win.startBeat;
-      const slotsPerBeat = 4;
-      const totalSlots = Math.max(1, Math.round(totalBeats * slotsPerBeat));
-
       type Slot = { treble: number[]; bass: number[] };
       const slots: Slot[] = Array.from({ length: totalSlots }, () => ({
         treble: [],
@@ -1941,8 +1971,11 @@ function ScoreView({
       for (const note of song.notes) {
         if (muted[note.trackIndex]) continue;
         if (scoreTracks && !scoreTracks.has(note.trackIndex)) continue;
-        if (note.time + note.duration < win.startTime) continue;
-        if (note.time > win.endTime) continue;
+        // Only notes whose onset falls *inside* the window get drawn. Notes
+        // tied from a previous bar are not re-attacked in notation; including
+        // them here would clamp to slot 0 and falsely thicken the first beat.
+        if (note.time < win.startTime - 1e-4) continue;
+        if (note.time > win.endTime - 1e-4) continue;
         const beatOff = timeToBeat(tempoMap, note.time) - win.startBeat;
         const slot = Math.max(
           0,
@@ -1953,14 +1986,20 @@ function ScoreView({
         if (!target.includes(note.midi)) target.push(note.midi);
       }
 
+      /** Tickables paired with their start slot, so we can correlate them
+       *  back to beat positions after formatting. */
       const makeNotes = (
         clef: "treble" | "bass",
         getMidis: (s: Slot) => number[]
       ) => {
-        const result: InstanceType<typeof StaveNote>[] = [];
+        const result: {
+          note: InstanceType<typeof StaveNote>;
+          startSlot: number;
+        }[] = [];
         let i = 0;
         while (i < totalSlots) {
           const midis = getMidis(slots[i]);
+          const startSlot = i;
           if (midis.length === 0) {
             let run = 1;
             while (
@@ -1969,14 +2008,18 @@ function ScoreView({
               run < 4
             )
               run++;
+            // Cap to power-of-2 so the StaveNote duration matches the slots
+            // it consumes (no orphan 3-slot dotted notes).
+            if (run === 3) run = 2;
             const dur = durationFromSixteenths(run);
-            result.push(
-              new StaveNote({
+            result.push({
+              note: new StaveNote({
                 clef,
                 keys: [clef === "treble" ? "b/4" : "d/3"],
                 duration: dur + "r",
-              })
-            );
+              }),
+              startSlot,
+            });
             i += run;
           } else {
             let run = 1;
@@ -1986,6 +2029,7 @@ function ScoreView({
               run < 4
             )
               run++;
+            if (run === 3) run = 2;
             const dur = durationFromSixteenths(run);
             const sorted = midis.slice().sort((a, b) => a - b);
             const keys = sorted.map(midiToVex);
@@ -1994,15 +2038,17 @@ function ScoreView({
               const acc = accidentalFor(m);
               if (acc) note.addModifier(new Accidental(acc), idx);
             });
-            result.push(note);
+            result.push({ note, startSlot });
             i += run;
           }
         }
         return result;
       };
 
-      const trebleNotes = makeNotes("treble", (s) => s.treble);
-      const bassNotes = makeNotes("bass", (s) => s.bass);
+      const trebleEntries = makeNotes("treble", (s) => s.treble);
+      const bassEntries = makeNotes("bass", (s) => s.bass);
+      const trebleNotes = trebleEntries.map((e) => e.note);
+      const bassNotes = bassEntries.map((e) => e.note);
 
       const numBeats = totalSlots / 4;
       const voiceTreble = new Voice({ numBeats, beatValue: 4 });
@@ -2016,6 +2062,34 @@ function ScoreView({
         .format([voiceTreble, voiceBass], staveWidth - 90);
       voiceTreble.draw(ctx, trebleStave);
       voiceBass.draw(ctx, bassStave);
+
+      /* Build playhead anchors: (beat, x) pairs sampled from the formatted
+       * notes. We merge treble + bass entries by slot, then sort by beat. */
+      const anchorMap = new Map<number, number>();
+      const captureFromEntries = (
+        entries: { note: InstanceType<typeof StaveNote>; startSlot: number }[]
+      ) => {
+        for (const e of entries) {
+          const beat = win.startBeat + e.startSlot / slotsPerBeat;
+          const x = e.note.getAbsoluteX();
+          if (!anchorMap.has(beat) || (anchorMap.get(beat) ?? 0) > x) {
+            anchorMap.set(beat, x);
+          }
+        }
+      };
+      captureFromEntries(trebleEntries);
+      captureFromEntries(bassEntries);
+      const anchors = Array.from(anchorMap.entries())
+        .map(([beat, x]) => ({ beat, x }))
+        .sort((a, b) => a.beat - b.beat);
+      // Bookend with the stave's actual note end so the playhead reaches the
+      // right edge cleanly at the end of the page.
+      const endX = trebleStave.getNoteEndX();
+      if (anchors.length === 0) {
+        anchors.push({ beat: win.startBeat, x: trebleStave.getNoteStartX() });
+      }
+      anchors.push({ beat: win.endBeat, x: endX });
+      noteAnchorsRef.current = anchors;
 
       const svg = el.querySelector("svg");
       if (svg) {
@@ -2033,34 +2107,81 @@ function ScoreView({
         );
         bar.textContent = `Bar ${win.startBar.bar + 1}`;
         svg.appendChild(bar);
+
+        /* Playhead line — inside the SVG so it scales with the viewBox. */
+        const ph = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "line"
+        );
+        ph.setAttribute("x1", "0");
+        ph.setAttribute("x2", "0");
+        ph.setAttribute("y1", "30");
+        ph.setAttribute("y2", "290");
+        ph.setAttribute("stroke", "#f5a623");
+        ph.setAttribute("stroke-width", "1.5");
+        ph.setAttribute("opacity", "0.75");
+        ph.setAttribute("pointer-events", "none");
+        svg.appendChild(ph);
+        playheadSvgRef.current = ph;
+
+        /* Map the natural-coordinate SVG to the container via viewBox, so
+         * dense pages shrink to fit instead of overflowing horizontally. */
+        svg.setAttribute("viewBox", `0 0 ${naturalWidth} ${h}`);
+        svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
+        svg.removeAttribute("width");
+        svg.removeAttribute("height");
+        (svg as unknown as HTMLElement).style.width = "100%";
+        (svg as unknown as HTMLElement).style.height = "auto";
       }
     } catch (e) {
       setError(String(e));
     }
   }, [vex, width, win, song, muted, tempoMap, currentTs, currentKey, scoreTracks]);
 
-  /* Playhead animation — updates a DOM overlay via rAF, independent of the
-   * VexFlow re-render which only happens on bar change. */
+  /* Playhead animation — updates the SVG line via rAF.
+   *
+   * Position is interpolated between *actual note x positions* captured from
+   * VexFlow after layout. The playhead lives inside the SVG so it scales
+   * automatically when the viewBox shrinks dense pages to fit the viewport. */
   useEffect(() => {
-    const ph = playheadRef.current;
-    if (!ph) return;
-    const padding = 16;
-    const staveWidth = width - padding * 2;
-    const minX = padding + 80;
-    const range = Math.max(1, staveWidth - 100);
     let raf = 0;
     const tick = () => {
+      const ph = playheadSvgRef.current;
+      if (!ph) {
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       const pos = getLivePosition();
-      const progress =
-        (pos - win.startTime) /
-        Math.max(0.001, win.endTime - win.startTime);
-      const phX = minX + range * Math.max(0, Math.min(1, progress));
-      ph.style.transform = `translateX(${phX}px)`;
+      const curBeat = timeToBeat(tempoMap, Math.max(0, pos));
+      const anchors = noteAnchorsRef.current;
+      let phX: number;
+      if (anchors.length === 0) {
+        phX = 0;
+      } else if (curBeat <= anchors[0].beat) {
+        phX = anchors[0].x;
+      } else if (curBeat >= anchors[anchors.length - 1].beat) {
+        phX = anchors[anchors.length - 1].x;
+      } else {
+        let lo = 0;
+        let hi = anchors.length - 1;
+        while (lo < hi - 1) {
+          const mid = (lo + hi) >>> 1;
+          if (anchors[mid].beat <= curBeat) lo = mid;
+          else hi = mid;
+        }
+        const a = anchors[lo];
+        const b = anchors[hi];
+        const t = (curBeat - a.beat) / Math.max(1e-6, b.beat - a.beat);
+        phX = a.x + (b.x - a.x) * t;
+      }
+      const xs = String(phX);
+      ph.setAttribute("x1", xs);
+      ph.setAttribute("x2", xs);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [width, win, getLivePosition]);
+  }, [tempoMap, getLivePosition]);
 
   const allOn = scoreTracks === null;
   const toggleTrack = (idx: number) => {
@@ -2112,6 +2233,30 @@ function ScoreView({
             </button>
           );
         })}
+        <div style={{ flex: 1 }} />
+        <div className="bars-control">
+          <button
+            className="zoom-btn"
+            onClick={() =>
+              setBarsPerPage((n) => Math.max(SCORE_BARS_MIN, n - 1))
+            }
+            aria-label="表示小節数を減らす"
+            disabled={barsPerPage <= SCORE_BARS_MIN}
+          >
+            −
+          </button>
+          <span className="zoom-readout">{barsPerPage} bars</span>
+          <button
+            className="zoom-btn"
+            onClick={() =>
+              setBarsPerPage((n) => Math.min(SCORE_BARS_MAX, n + 1))
+            }
+            aria-label="表示小節数を増やす"
+            disabled={barsPerPage >= SCORE_BARS_MAX}
+          >
+            +
+          </button>
+        </div>
       </div>
       {error && (
         <div className="error" style={{ margin: 12 }}>
@@ -2126,7 +2271,6 @@ function ScoreView({
       )}
       <div className="score-stage">
         <div ref={wrapRef} className="score-host" />
-        <div ref={playheadRef} className="score-playhead" />
       </div>
     </div>
   );

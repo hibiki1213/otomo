@@ -436,26 +436,26 @@ input[type="range"]::-moz-range-thumb {
   background: #f7f5ee;
 }
 
-.score-playhead {
-  position: absolute;
-  top: 30px;
-  left: 0;
-  width: 1.5px;
-  height: 260px;
-  background: #f5a623;
-  opacity: 0.75;
-  pointer-events: none;
-  will-change: transform;
-  transition: none;
-}
-
 .score-track-bar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   padding: 8px 10px;
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
+}
+
+.bars-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.bars-control .zoom-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .track-chip {

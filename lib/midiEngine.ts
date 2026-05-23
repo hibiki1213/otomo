@@ -173,8 +173,12 @@ export class MidiEngine {
   private panNodes: StereoPannerNode[] = [];
   private reverbSends: GainNode[] = [];
 
-  // Map<trackIndex, Map<programNumber, Player>>; null = drum.
-  private instruments: (Map<number, SoundfontPlayer | null> | null)[] = [];
+  // Per-track flag: true if percussion (use DrumSynth instead of soundfont).
+  private isPercussionTrack: boolean[] = [];
+  // Shared Players by program number — one Player per unique program across
+  // the whole file. Notes are re-routed per-track via Web Audio node connects.
+  private programPlayers = new Map<number, SoundfontPlayer | null>();
+  private programDummyDest: GainNode | null = null;
   private drum: DrumSynth | null = null;
   private reverbReturn: GainNode | null = null;
 
@@ -376,7 +380,8 @@ export class MidiEngine {
     this.expressionGains = [];
     this.panNodes = [];
     this.reverbSends = [];
-    this.instruments = [];
+    this.isPercussionTrack = [];
+    this.programPlayers = new Map();
     this.tracksData = [];
     this.muted = [];
 
@@ -391,24 +396,22 @@ export class MidiEngine {
       const isPercussion = track.instrument.percussion;
       const program = track.instrument.number ?? 0;
 
-      // Build per-track CC arrays from low-level pass (channel-scoped)
+      // Build per-track CC arrays from low-level pass (channel-scoped).
+      // Note on programs: we deliberately do NOT use the channel-scoped
+      // programChanges here, because orchestral Format-1 files often have
+      // multiple "tracks" sharing one channel (one with notes + several
+      // metadata-only label tracks), and channel-scoped programs would
+      // bleed across them — giving wrong instruments. @tonejs/midi's
+      // `track.instrument.number` is already derived from the FIRST
+      // programChange in this raw track's own events, so it's reliable.
       const lc = lowChannel[channel] ?? {
         programChanges: [],
         channelAftertouch: [],
         cc: new Map(),
       };
       const getCC = (n: number) => (lc.cc.get(n) ?? []).slice();
-      const programChanges: ProgramChange[] =
-        lc.programChanges.length > 0
-          ? lc.programChanges.slice()
-          : [{ time: 0, program }];
-      // Ensure there's a value at t=0
-      if (programChanges[0].time > 0.0001) {
-        programChanges.unshift({ time: 0, program });
-      }
-      const programs = Array.from(
-        new Set(programChanges.map((p) => p.program))
-      );
+      const programChanges: ProgramChange[] = [{ time: 0, program }];
+      const programs = [program];
 
       // Build pitch bend timeline. @tonejs/midi exposes the raw 14-bit
       // value (-8192..8191) from midi-file. Normalize to -1..1.
@@ -499,33 +502,9 @@ export class MidiEngine {
         if (note.midi > maxMidi) maxMidi = note.midi;
       }
 
-      // Load all programs in use
-      const instrumentMap = new Map<number, SoundfontPlayer | null>();
-      this.instruments.push(isPercussion ? null : instrumentMap);
-      if (!isPercussion) {
-        for (const prog of programs) {
-          instrumentMap.set(prog, null);
-          loadJobs.push(
-            Soundfont.instrument(ctx, soundfontNameForProgram(prog), {
-              soundfont: "MusyngKite",
-              format: "mp3",
-              destination: trackInput,
-            })
-              .then((player) => {
-                instrumentMap.set(prog, player);
-              })
-              .catch(() =>
-                Soundfont.instrument(ctx, "acoustic_grand_piano", {
-                  destination: trackInput,
-                })
-                  .then((player) => {
-                    instrumentMap.set(prog, player);
-                  })
-                  .catch(() => undefined)
-              )
-          );
-        }
-      }
+      this.isPercussionTrack.push(isPercussion);
+      // Programs are loaded ONCE per unique program after this loop, not
+      // per track — see the dedup pass below.
 
       tracks.push({
         index,
@@ -541,6 +520,48 @@ export class MidiEngine {
     });
 
     this.notes.sort((a, b) => a.time - b.time);
+
+    /* Deduplicate programs across all tracks and load each soundfont ONCE.
+     * For a large orchestral file with 50+ tracks we go from 50+ soundfont
+     * loads (each independently decoding the same MP3 bank) down to ~10
+     * unique programs — the difference between hanging and loading. */
+    const dummy = ctx.createGain();
+    dummy.gain.value = 0;
+    // Don't connect dummy to anything: it acts as a sink that goes nowhere
+    // until we re-route per-note nodes to the per-track signal chain.
+    this.programDummyDest = dummy;
+
+    const uniquePrograms = new Set<number>();
+    for (let i = 0; i < this.tracksData.length; i++) {
+      if (this.isPercussionTrack[i]) continue;
+      for (const p of this.tracksData[i].programs) {
+        uniquePrograms.add(p);
+      }
+    }
+
+    for (const prog of uniquePrograms) {
+      this.programPlayers.set(prog, null);
+      loadJobs.push(
+        Soundfont.instrument(ctx, soundfontNameForProgram(prog), {
+          soundfont: "MusyngKite",
+          format: "mp3",
+          destination: dummy,
+        })
+          .then((player) => {
+            this.programPlayers.set(prog, player);
+          })
+          .catch(() =>
+            Soundfont.instrument(ctx, "acoustic_grand_piano", {
+              destination: dummy,
+            })
+              .then((player) => {
+                this.programPlayers.set(prog, player);
+              })
+              .catch(() => undefined)
+          )
+      );
+    }
+
     await Promise.all(loadJobs);
 
     if (minMidi > maxMidi) {
@@ -715,10 +736,10 @@ export class MidiEngine {
   private playNote(note: NoteEvent, when: number) {
     const ctx = this.ctx;
     if (!ctx) return;
-    const instrumentMap = this.instruments[note.trackIndex];
+    if (this.muted[note.trackIndex]) return;
     const tdata = this.tracksData[note.trackIndex];
 
-    if (!instrumentMap) {
+    if (this.isPercussionTrack[note.trackIndex]) {
       // Percussion: trigger the drum synth through trackInput
       if (this.drum) {
         this.drum.trigger(
@@ -731,19 +752,31 @@ export class MidiEngine {
       return;
     }
 
-    const player = instrumentMap.get(note.program) ?? null;
+    const player = this.programPlayers.get(note.program) ?? null;
     if (!player) return;
 
     const duration = note.effectiveDuration;
     const node = player.play(midiToNoteName(note.midi), when, {
       duration,
       gain: note.velocity,
-    }) as unknown as {
-      source?: AudioBufferSourceNode;
-      stop?: (when: number) => void;
-    } | undefined;
+    }) as unknown as
+      | (AudioNode & {
+          source?: AudioBufferSourceNode;
+          stop?: (when: number) => void;
+        })
+      | undefined;
 
     if (!node?.source) return;
+
+    // Re-route the voice from the shared Player's output to this track's
+    // input. Each note's gain node is created fresh by soundfont-player,
+    // so disconnecting it doesn't affect other simultaneously-playing notes.
+    try {
+      node.disconnect();
+    } catch {
+      /* ignore */
+    }
+    node.connect(this.trackInputs[note.trackIndex]);
 
     // Apply pitch bend automation across the note's lifetime
     if (tdata.pitchBends.length > 0) {
@@ -789,14 +822,11 @@ export class MidiEngine {
   }
 
   private cancelAll() {
-    for (const map of this.instruments) {
-      if (!map) continue;
-      for (const player of map.values()) {
-        try {
-          player?.stop();
-        } catch {
-          /* ignore */
-        }
+    for (const player of this.programPlayers.values()) {
+      try {
+        player?.stop();
+      } catch {
+        /* ignore */
       }
     }
     this.drum?.cancelAll();
@@ -852,7 +882,9 @@ export class MidiEngine {
     this.expressionGains = [];
     this.panNodes = [];
     this.reverbSends = [];
-    this.instruments = [];
+    this.isPercussionTrack = [];
+    this.programPlayers = new Map();
+    this.programDummyDest = null;
     this.notes = [];
     this.tracksData = [];
     this.muted = [];
