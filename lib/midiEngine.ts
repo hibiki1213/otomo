@@ -1,11 +1,256 @@
-import type { Smplr, SampleLoader as SampleLoaderT } from "smplr";
+import type {
+  Smplr,
+  SampleLoader as SampleLoaderT,
+  SmplrPreset,
+  SmplrRegion,
+} from "smplr";
 import { DrumSynth } from "./drumSynth";
 import {
-  soundfontNameForProgram,
   prettyInstrumentName,
   instrumentFamily,
   isPianoProgram,
 } from "./gm";
+
+/**
+ * GeneralUser GS — a CORS-served, GM-compliant SoundFont2 file (~31 MB).
+ * Provides much higher quality samples than the MusyngKite kit for non-piano
+ * instruments. Fetched once and parsed; subsequent track instances reuse the
+ * parsed SoundFont2 via the module-level cache below.
+ */
+const SF2_URL =
+  "https://raw.githubusercontent.com/ad-si/GeneralUser/master/GeneralUser.sf2";
+
+// SF2 generator IDs we care about (from the SF2.04 spec). Listed here rather
+// than imported because the soundfont2 library's enum is types-only.
+const GEN_INITIAL_ATTENUATION = 48; // centibels of attenuation (positive = quieter)
+const GEN_COARSE_TUNE = 51; // semitones
+const GEN_FINE_TUNE = 52; // cents
+const GEN_SAMPLE_MODES = 54; // 0 = no loop, 1 = continuous loop, 3 = loop until release
+const GEN_OVERRIDING_ROOT_KEY = 58;
+
+interface ZoneItemsLike {
+  keyRange?: { lo: number; hi: number };
+  generators?: Record<number, { value?: number } | undefined>;
+}
+interface SampleLike {
+  data: Int16Array;
+  header: {
+    name: string;
+    sampleRate: number;
+    originalPitch: number;
+    pitchCorrection: number;
+    startLoop: number;
+    endLoop: number;
+  };
+}
+type PresetZoneLike = ZoneItemsLike & {
+  instrument?: {
+    globalZone?: ZoneItemsLike;
+    zones: InstrumentZoneLike[];
+  };
+};
+type InstrumentZoneLike = ZoneItemsLike & {
+  sample?: SampleLike;
+};
+type Sf2Lib = typeof import("soundfont2");
+type ParsedSf2 = InstanceType<Sf2Lib["SoundFont2"]>;
+
+function genValue(zone: ZoneItemsLike | undefined, id: number): number | undefined {
+  return zone?.generators?.[id]?.value;
+}
+
+let cachedSf2: ParsedSf2 | null = null;
+let cachedSf2Promise: Promise<ParsedSf2> | null = null;
+
+/** Fetch + parse GeneralUser GS once, sharing the result across all instruments. */
+async function ensureSf2(sfLib: Sf2Lib): Promise<ParsedSf2> {
+  if (cachedSf2) return cachedSf2;
+  if (cachedSf2Promise) return cachedSf2Promise;
+  cachedSf2Promise = (async () => {
+    const buf = await fetch(SF2_URL).then((r) => r.arrayBuffer());
+    const sf2 = new sfLib.SoundFont2(new Uint8Array(buf));
+    cachedSf2 = sf2;
+    if (typeof window !== "undefined") {
+      (window as unknown as { __sf2: ParsedSf2 }).__sf2 = sf2;
+    }
+    return sf2;
+  })();
+  return cachedSf2Promise;
+}
+
+interface PresetBuild {
+  json: SmplrPreset;
+  buffers: Map<string, AudioBuffer>;
+}
+
+/** Per-AudioContext cache of AudioBuffers, keyed by `sampleName#variantKey`. */
+const audioBufferCacheByCtx = new WeakMap<
+  BaseAudioContext,
+  Map<string, AudioBuffer>
+>();
+/** Per-AudioContext cache of fully-built presets keyed by `bank:program`. */
+const presetCacheByCtx = new WeakMap<BaseAudioContext, Map<string, PresetBuild>>();
+
+const presetKey = (bank: number, program: number) => `${bank}:${program}`;
+
+function int16ToAudioBuffer(
+  ctx: BaseAudioContext,
+  data: Int16Array,
+  sampleRate: number
+): AudioBuffer {
+  const buf = ctx.createBuffer(1, data.length, sampleRate);
+  const out = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) out[i] = data[i] / 32768;
+  return buf;
+}
+
+/**
+ * Build a smplr preset for a single GM program from the parsed SF2.
+ *
+ * SF2 generators we honour:
+ *  - OverridingRootKey (58) + sample.originalPitch → region.pitch
+ *  - CoarseTune (51) + FineTune (52) + sample.pitchCorrection → folded into
+ *    a fractional region.pitch (smplr does `(midi - pitch) * 100` for detune,
+ *    so subtracting cents from the root pitch is exact)
+ *  - InitialAttenuation (48) → region.volume in dB. SF2 stores centibels
+ *    of positive attenuation; dB volume = -cB / 10.
+ *  - SampleModes (54) → loop on/off
+ *
+ * Both preset-level and instrument-level zones contribute additively per
+ * SF2 spec §9.5.
+ */
+function buildPresetForProgram(
+  ctx: BaseAudioContext,
+  sf2: ParsedSf2,
+  bank: number,
+  program: number
+): PresetBuild | null {
+  let presetCache = presetCacheByCtx.get(ctx);
+  if (!presetCache) {
+    presetCache = new Map();
+    presetCacheByCtx.set(ctx, presetCache);
+  }
+  const cacheKey = presetKey(bank, program);
+  const hit = presetCache.get(cacheKey);
+  if (hit) return hit;
+
+  const preset = sf2.presets.find(
+    (p) => p.header.bank === bank && p.header.preset === program
+  );
+  if (!preset) return null;
+
+  let bufCache = audioBufferCacheByCtx.get(ctx);
+  if (!bufCache) {
+    bufCache = new Map();
+    audioBufferCacheByCtx.set(ctx, bufCache);
+  }
+
+  const pg = (preset as unknown as { globalZone?: ZoneItemsLike }).globalZone;
+  const regions: SmplrRegion[] = [];
+  const buffers = new Map<string, AudioBuffer>();
+  let zoneCounter = 0;
+
+  for (const pz of preset.zones as unknown as PresetZoneLike[]) {
+    if (!pz.instrument) continue;
+    const inst = pz.instrument;
+    const ig = inst.globalZone;
+    const pRange = pz.keyRange;
+
+    const presetCoarse =
+      (genValue(pg, GEN_COARSE_TUNE) ?? 0) +
+      (genValue(pz, GEN_COARSE_TUNE) ?? 0);
+    const presetFine =
+      (genValue(pg, GEN_FINE_TUNE) ?? 0) +
+      (genValue(pz, GEN_FINE_TUNE) ?? 0);
+    const presetAttenCb =
+      (genValue(pg, GEN_INITIAL_ATTENUATION) ?? 0) +
+      (genValue(pz, GEN_INITIAL_ATTENUATION) ?? 0);
+
+    for (const iz of inst.zones) {
+      if (!iz.sample) continue;
+      const iRange = iz.keyRange;
+      let keyRange: { lo: number; hi: number } | undefined;
+      if (pRange && iRange) {
+        const lo = Math.max(pRange.lo, iRange.lo);
+        const hi = Math.min(pRange.hi, iRange.hi);
+        if (lo > hi) continue;
+        keyRange = { lo, hi };
+      } else {
+        keyRange = iRange ?? pRange;
+      }
+
+      const coarseTune =
+        presetCoarse +
+        (genValue(ig, GEN_COARSE_TUNE) ?? 0) +
+        (genValue(iz, GEN_COARSE_TUNE) ?? 0);
+      const fineTune =
+        presetFine +
+        (genValue(ig, GEN_FINE_TUNE) ?? 0) +
+        (genValue(iz, GEN_FINE_TUNE) ?? 0);
+      const attenCb =
+        presetAttenCb +
+        (genValue(ig, GEN_INITIAL_ATTENUATION) ?? 0) +
+        (genValue(iz, GEN_INITIAL_ATTENUATION) ?? 0);
+      const overrideRoot =
+        genValue(iz, GEN_OVERRIDING_ROOT_KEY) ??
+        genValue(ig, GEN_OVERRIDING_ROOT_KEY) ??
+        -1;
+      const sampleModes =
+        genValue(iz, GEN_SAMPLE_MODES) ??
+        genValue(ig, GEN_SAMPLE_MODES) ??
+        0;
+
+      const hdr = iz.sample.header;
+      const effectiveRoot =
+        overrideRoot >= 0 && overrideRoot <= 127
+          ? overrideRoot
+          : hdr.originalPitch;
+      const pitch =
+        effectiveRoot - coarseTune - (fineTune + hdr.pitchCorrection) / 100;
+      const volumeDb = -attenCb / 10;
+
+      // Cache AudioBuffers per unique underlying sample so multiple regions /
+      // multiple presets sharing the same sample don't duplicate decoding.
+      const bufKey = `${hdr.name}@${hdr.sampleRate}`;
+      let abuf = bufCache.get(bufKey);
+      if (!abuf) {
+        abuf = int16ToAudioBuffer(ctx, iz.sample.data, hdr.sampleRate);
+        bufCache.set(bufKey, abuf);
+      }
+      // Region-level sample reference: smplr looks up the region.sample string
+      // in the buffers Map passed to loadInstrument. Use a per-region key so
+      // loop info (which is region-level, not buffer-level) doesn't collide.
+      const regionSampleName = `${bufKey}#${zoneCounter++}`;
+      buffers.set(regionSampleName, abuf);
+
+      const loopOn = sampleModes === 1 || sampleModes === 3;
+      const region: SmplrRegion = {
+        sample: regionSampleName,
+        pitch,
+        volume: volumeDb,
+      };
+      if (keyRange) region.keyRange = [keyRange.lo, keyRange.hi];
+      if (loopOn && hdr.endLoop > hdr.startLoop) {
+        region.loop = true;
+        region.loopStart = hdr.startLoop / hdr.sampleRate;
+        region.loopEnd = hdr.endLoop / hdr.sampleRate;
+      }
+      regions.push(region);
+    }
+  }
+
+  if (regions.length === 0) return null;
+
+  const built: PresetBuild = {
+    json: {
+      samples: { baseUrl: "", formats: [] },
+      groups: [{ regions }],
+    },
+    buffers,
+  };
+  presetCache.set(cacheKey, built);
+  return built;
+}
 
 export type PlayerState =
   | "idle"
@@ -213,6 +458,7 @@ export class MidiEngine {
     const { Midi } = await import("@tonejs/midi");
     const midiFile = await import("midi-file");
     const smplr = await import("smplr");
+    const sfLib = await import("soundfont2");
 
     const midi = new Midi(buffer);
     this.duration = midi.duration;
@@ -509,14 +755,16 @@ export class MidiEngine {
       // fall back to the smplr Soundfont loader (MusyngKite by default).
       let inst: Smplr | null = null;
       if (!isPercussion) {
-        inst = buildInstrumentFor(
+        const built = buildInstrumentFor(
           smplr,
+          sfLib,
           ctx,
           program,
           trackInput,
           this.sampleLoader!
         );
-        loadJobs.push(inst.ready.catch(() => undefined));
+        inst = built.inst;
+        loadJobs.push(built.ready);
       }
       this.trackInstruments.push(inst);
 
@@ -663,11 +911,19 @@ export class MidiEngine {
     }
 
     const smplr = await import("smplr");
+    const sfLib = await import("soundfont2");
     const trackInput = this.trackInputs[trackIndex];
     const loader = this.sampleLoader;
     if (!trackInput || !loader) return;
-    const inst = buildInstrumentFor(smplr, ctx, program, trackInput, loader);
-    this.trackInstruments[trackIndex] = inst;
+    const built = buildInstrumentFor(
+      smplr,
+      sfLib,
+      ctx,
+      program,
+      trackInput,
+      loader
+    );
+    this.trackInstruments[trackIndex] = built.inst;
     this.trackPrograms[trackIndex] = program;
     // Update every note belonging to this track so the piano-roll labelling
     // and scheduleAhead's playNote use the new program.
@@ -676,11 +932,7 @@ export class MidiEngine {
     }
     this.tracksData[trackIndex].programs = [program];
 
-    try {
-      await inst.ready;
-    } catch {
-      /* ignore — instrument left in unloaded state, notes just won't sound */
-    }
+    await built.ready;
     this.onTrackProgramChanged?.(trackIndex, program);
   }
 
@@ -901,25 +1153,65 @@ export class MidiEngine {
 
 /* ---------- helpers ---------- */
 
+interface BuiltInstrument {
+  inst: Smplr;
+  ready: Promise<void>;
+}
+
+type Sf2InstrumentOptions = {
+  sfLib: Sf2Lib;
+  bank: number;
+  program: number;
+  destination?: AudioNode;
+};
+
+// Module-level cache of the factory itself. We can only build it once smplr
+// is dynamically imported, but the factory is reused for every track.
+let sf2InstrumentFactory:
+  | ((ctx: AudioContext, options: Sf2InstrumentOptions) => Smplr & { ready: Promise<void> })
+  | null = null;
+
+function getSf2InstrumentFactory(smplr: typeof import("smplr")) {
+  if (sf2InstrumentFactory) return sf2InstrumentFactory;
+  sf2InstrumentFactory = smplr.Instrument<Sf2InstrumentOptions>(
+    (ctx, options, smplrApi) => {
+      const ready = (async () => {
+        const sf2 = await ensureSf2(options.sfLib);
+        const built = buildPresetForProgram(
+          ctx,
+          sf2,
+          options.bank,
+          options.program
+        );
+        if (!built) return;
+        await smplrApi.loadInstrument(built.json, built.buffers);
+      })();
+      return { ready };
+    }
+  ) as unknown as typeof sf2InstrumentFactory;
+  return sf2InstrumentFactory!;
+}
+
 function buildInstrumentFor(
   smplr: typeof import("smplr"),
+  sfLib: typeof import("soundfont2"),
   ctx: AudioContext,
   program: number,
   destination: AudioNode,
   loader: SampleLoaderT
-): Smplr {
+): BuiltInstrument {
   if (isPianoProgram(program)) {
-    return smplr.SplendidGrandPiano(ctx, {
-      destination,
-      loader,
-    });
+    const inst = smplr.SplendidGrandPiano(ctx, { destination, loader });
+    return { inst, ready: inst.ready.catch(() => undefined) };
   }
-  return smplr.Soundfont(ctx, {
-    instrument: soundfontNameForProgram(program),
-    kit: "MusyngKite",
+  const factory = getSf2InstrumentFactory(smplr);
+  const inst = factory(ctx, {
+    sfLib,
+    bank: 0,
+    program,
     destination,
-    loader,
   });
+  return { inst, ready: inst.ready.catch(() => undefined) };
 }
 
 function programAtTime(

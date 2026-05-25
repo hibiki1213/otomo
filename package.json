@@ -16,6 +16,7 @@
     "react-dom": "19.0.0",
     "smplr": "^0.26.0",
     "soundfont-player": "0.12.0",
+    "soundfont2": "^0.5.0",
     "vexflow": "^5.0.0"
   },
   "devDependencies": {
