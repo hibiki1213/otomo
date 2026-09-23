@@ -1,0 +1,58 @@
+use tauri::Manager;
+
+mod asset_cache;
+mod engine;
+mod instruments;
+mod library;
+mod spatial;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .manage(library::LibraryState::default())
+        .setup(|app| {
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+            // Without an audio device the app still runs (web engine fallback).
+            match engine::start() {
+                Ok(handle) => {
+                    app.manage(handle);
+                }
+                Err(e) => log::error!("native audio engine unavailable: {e}"),
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            asset_cache::asset_cache_has,
+            asset_cache::asset_cache_get,
+            asset_cache::asset_cache_put,
+            engine::engine_load_soundfont,
+            engine::engine_load_song,
+            engine::engine_play,
+            engine::engine_pause,
+            engine::engine_stop,
+            engine::engine_seek,
+            engine::engine_set_master_volume,
+            engine::engine_set_track_muted,
+            engine::engine_set_track_program,
+            engine::engine_status,
+            engine::engine_spatial_options,
+            engine::engine_set_spatial,
+            engine::engine_set_track_instrument,
+            engine::plugin_list,
+            engine::plugin_open_editor,
+            library::library_list,
+            library::library_install,
+            library::library_remove,
+            library::library_suggest,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

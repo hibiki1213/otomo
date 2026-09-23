@@ -2,27 +2,34 @@
   "name": "midiss",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri",
+    "app:dev": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
+    "app:build": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri build"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-opener": "^2.5.5",
     "@tonejs/midi": "2.0.28",
     "midi-file": "^1.2.4",
-    "next": "^15.5.18",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "smplr": "^0.26.0",
-    "soundfont-player": "0.12.0",
     "soundfont2": "^0.5.0",
     "vexflow": "^5.0.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5",
     "@types/node": "22.10.7",
     "@types/react": "19.0.7",
     "@types/react-dom": "19.0.3",
-    "typescript": "5.7.3"
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "5.7.3",
+    "vite": "^8.3.0"
   }
 }

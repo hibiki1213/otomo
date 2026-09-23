@@ -1,0 +1,4 @@
+# sfizz's CMake writes generated files (Config.h.tmp) into its source tree;
+# watching it makes `tauri dev` rebuild forever.
+vendor/
+src/engine/tests.rs

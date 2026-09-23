@@ -1,0 +1,13 @@
+sadie_ku100_48k.hrir is derived from the SADIE II Database
+(subject D1, Neumann KU100 dummy head, 48 kHz HRIR WAV set),
+University of York: https://www.york.ac.uk/sadie-project/database.html
+
+Licensed under the Apache License, Version 2.0 (see LICENSE-APACHE-2.0.txt).
+
+Modifications: directions subsampled to a 5-degree azimuth grid at
+elevations -45..90 and repacked as float32 by scripts/convert_hrir.py.
+
+Reference: C. Armstrong, L. Thresh, D. Murphy, G. Kearney,
+"A Perceptual Evaluation of Individual and Non-Individual HRTFs: A Case Study
+of the SADIE II Database", Applied Sciences 8(11):2029, 2018.
+doi:10.3390/app8112029
