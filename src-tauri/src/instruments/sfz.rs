@@ -4,11 +4,32 @@
 //! loaded on a worker thread, then moved to the audio thread, which is the only
 //! one that touches it afterwards (events + rendering). It is freed on the
 //! engine's janitor thread. Samples stream from disk on sfizz's own threads.
+//!
+//! Instances are created and destroyed one at a time (see [`setup_lock`]);
+//! everything after that is instance-local and runs unlocked.
 
 use std::ffi::{c_char, c_int, CString};
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
 
 use crate::engine::player::Instrument;
+
+/// Creating, loading and freeing a sfizz instance all touch process-wide state
+/// that sfizz itself does not lock: the shared sample-reading thread pool
+/// (`FilePool.cpp`, read outside its own mutex) and a global map of envelope
+/// shapes that every parsed file inserts into and prunes (`FlexEGDescription.
+/// cpp`). Automatic assignment loads a whole song's instruments at once, and
+/// those concurrent loads corrupted the heap — so they take turns here.
+///
+/// Playing does not: rendering, notes and controllers stay instance-local and
+/// never wait on this lock, so the audio thread is unaffected.
+static SFIZZ_SETUP: Mutex<()> = Mutex::new(());
+
+fn setup_lock() -> MutexGuard<'static, ()> {
+    // A panic inside sfizz would poison the lock; there is no state to
+    // protect beyond "one at a time", so carry on.
+    SFIZZ_SETUP.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 #[allow(non_camel_case_types)]
 #[repr(C)]
@@ -59,6 +80,7 @@ impl SfzInstrument {
     /// Create and load an instrument. Blocking (reads sample preloads).
     pub fn load(path: &Path, sample_rate: u32) -> Result<Self, String> {
         let c_path = CString::new(path.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+        let _setup = setup_lock();
         // SAFETY: fresh instance, used on this thread only until returned.
         unsafe {
             let synth = sfizz_create_synth();
@@ -84,6 +106,7 @@ impl SfzInstrument {
 
 impl Drop for SfzInstrument {
     fn drop(&mut self) {
+        let _setup = setup_lock();
         // SAFETY: we own the instance and nothing else references it.
         unsafe { sfizz_free(self.synth) }
     }
@@ -295,6 +318,53 @@ mod tests {
         assert!(split.parts[1].2.held[80] && !split.parts[0].2.held[80]);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// Auto-assignment loads every track's instrument at once. sfizz's
+    /// process-wide state is not built for that, so [`setup_lock`] serialises
+    /// it; without the lock this corrupts the heap and aborts the process.
+    /// Every file uses different envelope shapes, which is what makes the
+    /// threads collide in sfizz's global shape map.
+    #[test]
+    fn concurrent_loads_do_not_corrupt_the_heap() {
+        let dir = std::env::temp_dir().join(format!("midiss-sfz-par-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        sine_instrument(&dir);
+        let files: Vec<_> = (0..8)
+            .map(|t| {
+                let regions: String = (0..16)
+                    .map(|i| {
+                        let shape = (t * 16 + i) as f32 * 0.37 - 20.0;
+                        format!(
+                            "<region> sample=sine.wav pitch_keycenter={} ampeg_release=0.05 \
+                             eg1_time1=0.1 eg1_level1=1 eg1_shape1={shape} eg1_ampeg=1\n",
+                            40 + i
+                        )
+                    })
+                    .collect();
+                let path = dir.join(format!("shapes{t}.sfz"));
+                std::fs::write(&path, regions).unwrap();
+                path
+            })
+            .collect();
+        let threads: Vec<_> = files
+            .into_iter()
+            .map(|sfz| {
+                std::thread::spawn(move || {
+                    for _ in 0..24 {
+                        // Load, play a note, and free while others do the same.
+                        let mut inst = SfzInstrument::load(&sfz, 48_000).expect("load");
+                        inst.note_on(0, 45, 100);
+                        let (mut l, mut r) = (vec![0f32; 256], vec![0f32; 256]);
+                        inst.render(&mut l, &mut r);
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().expect("no thread crashed");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]
@@ -304,7 +374,7 @@ mod bench {
 
     use super::*;
     use std::path::PathBuf;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     fn lib(rel: &str) -> PathBuf {
         PathBuf::from(std::env::var("HOME").unwrap())
@@ -326,6 +396,52 @@ mod bench {
         }
         eprintln!("    peak {peak:.3}");
         e
+    }
+
+    /// What automatic assignment does on song load: every track's instrument
+    /// at once, from real libraries. Without [`setup_lock`] this aborts the
+    /// process within a few hundred rounds ("memory corruption of free
+    /// block"); with it, 3600 loads pass. Takes ~20 s.
+    /// `cargo test --release -- --ignored sfz_parallel_load --nocapture`
+    #[test]
+    #[ignore]
+    fn sfz_parallel_load() {
+        let vsco = lib("vsco2-ce");
+        if !vsco.exists() {
+            return;
+        }
+        let mut jobs: Vec<PathBuf> = std::fs::read_dir(&vsco)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "sfz"))
+            .collect();
+        jobs.sort();
+        jobs.truncate(12);
+        assert!(jobs.len() > 3, "need a few VSCO instruments installed");
+        for round in 0..300 {
+            let t = Instant::now();
+            let threads: Vec<_> = jobs
+                .iter()
+                .cloned()
+                .map(|p| {
+                    std::thread::spawn(move || {
+                        let t = Instant::now();
+                        let inst = SfzInstrument::load(&p, 48_000);
+                        (p, inst.is_ok(), t.elapsed())
+                    })
+                })
+                .collect();
+            let mut slowest = Duration::ZERO;
+            for th in threads {
+                let (p, ok, took) = th.join().expect("a loader thread crashed");
+                assert!(ok, "load {}", p.display());
+                slowest = slowest.max(took);
+            }
+            if round % 50 == 0 {
+                eprintln!("round {round}: {} instruments in {:?} (slowest {slowest:?})", jobs.len(), t.elapsed());
+            }
+        }
     }
 
     #[test]

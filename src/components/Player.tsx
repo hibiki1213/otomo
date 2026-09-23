@@ -191,15 +191,37 @@ function formatDuration(seconds: number): string {
 
 /* ---------- component ---------- */
 
-export default function Player() {
+/** The song to play, taken from the library (see `songsApi`). */
+export interface SongSource {
+  id: number;
+  /** File name, as the MIDI parser sees it. */
+  name: string;
+  /** What the library calls it; shown in the toolbar. */
+  title: string;
+  buffer: ArrayBuffer;
+}
+
+export default function Player({
+  source,
+  onLoaded,
+  onStateChange,
+  onOpenFiles,
+}: {
+  source: SongSource | null;
+  /** Reports what opening the song revealed, for the library entry. */
+  onLoaded: (id: number, info: SongInfo) => void;
+  onStateChange: (state: PlayerState) => void;
+  onOpenFiles: () => void;
+}) {
   const engineRef = useRef<PlaybackEngine | null>(null);
-  const lastSongRef = useRef<{ buffer: ArrayBuffer; name: string } | null>(
-    null
-  );
+  const lastSongRef = useRef<{
+    buffer: ArrayBuffer;
+    name: string;
+    id: number;
+  } | null>(null);
   const [engineKind, setEngineKind] = useState<EngineKind>(() =>
     RustEngine.available() ? "native" : "web"
   );
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [song, setSong] = useState<SongInfo | null>(null);
   const [state, setState] = useState<PlayerState>("idle");
@@ -208,7 +230,6 @@ export default function Player() {
   const [muted, setMuted] = useState<boolean[]>([]);
   const [trackPrograms, setTrackPrograms] = useState<number[]>([]);
   const [loadingTracks, setLoadingTracks] = useState<Set<number>>(new Set());
-  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressLabel, setProgressLabel] = useState("");
   const [primaryView, setPrimaryView] = useState<PrimaryView>("roll");
@@ -223,14 +244,19 @@ export default function Player() {
   const volumeRef = useRef(volume);
   volumeRef.current = volume;
 
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
+  const onStateChangeRef = useRef(onStateChange);
+  onStateChangeRef.current = onStateChange;
+
   const loadBuffer = useCallback(
-    async (buffer: ArrayBuffer, name: string) => {
+    async (buffer: ArrayBuffer, name: string, id: number) => {
       const engine = engineRef.current;
       if (!engine) return;
       setError(null);
       setProgressLabel("楽器の音源を読み込んでいます…");
       try {
-        lastSongRef.current = { buffer, name };
+        lastSongRef.current = { buffer, name, id };
         const info = await engine.load(buffer, name);
         if (engineRef.current !== engine) return;
         setSong(info);
@@ -239,6 +265,7 @@ export default function Player() {
         setLoadingTracks(new Set());
         setPosition(0);
         engine.setMasterVolume(volumeRef.current);
+        onLoadedRef.current(id, info);
       } catch (e) {
         console.error(e);
         setError(
@@ -254,35 +281,25 @@ export default function Player() {
   // into the new engine so the two can be A/B compared.
   useEffect(() => {
     const engine = createEngine(engineKind);
-    engine.onState = (s) => setState(s);
+    engine.onState = (s) => {
+      setState(s);
+      onStateChangeRef.current(s);
+    };
     engine.onTick = (p) => setPosition(p);
     engineRef.current = engine;
     const last = lastSongRef.current;
-    if (last) void loadBuffer(last.buffer, last.name);
+    if (last) void loadBuffer(last.buffer, last.name, last.id);
     return () => engine.dispose();
   }, [engineKind, loadBuffer]);
 
-  const loadFile = useCallback(
-    async (file: File) => {
-      if (!/\.midi?$/i.test(file.name)) {
-        setError("MIDI ファイル（.mid / .midi）を選択してください。");
-        return;
-      }
-      setProgressLabel("ファイルを解析しています…");
-      await loadBuffer(await file.arrayBuffer(), file.name);
-    },
-    [loadBuffer]
-  );
-
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) loadFile(file);
-    },
-    [loadFile]
-  );
+  // A different song was picked in the library. Keyed on the id, so editing
+  // the entry (a rename, say) never interrupts what is playing.
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  useEffect(() => {
+    const s = sourceRef.current;
+    if (s) void loadBuffer(s.buffer, s.name, s.id);
+  }, [source?.id, loadBuffer]);
 
   const togglePlay = useCallback(() => {
     const engine = engineRef.current;
@@ -514,12 +531,7 @@ export default function Player() {
     <div className="card">
       {!song && state !== "loading" && (
         <>
-          <DropZone
-            dragging={dragging}
-            setDragging={setDragging}
-            onDrop={onDrop}
-            onPick={() => fileInputRef.current?.click()}
-          />
+          <DropZone onPick={onOpenFiles} />
           {error && <div className="error">{error}</div>}
         </>
       )}
@@ -535,6 +547,7 @@ export default function Player() {
         <>
           <Toolbar
             song={song}
+            title={source?.title ?? song.name.replace(/\.midi?$/i, "")}
             position={position}
             isPlaying={isPlaying}
             volume={volume}
@@ -545,7 +558,7 @@ export default function Player() {
             onStop={stop}
             onSkip={skip}
             onVolume={onVolume}
-            onOpen={() => fileInputRef.current?.click()}
+            onOpen={onOpenFiles}
           />
 
           {engineKind === "native" && (
@@ -610,49 +623,20 @@ export default function Player() {
         />
       )}
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".mid,.midi,audio/midi"
-        style={{ display: "none" }}
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) loadFile(file);
-          e.target.value = "";
-        }}
-      />
     </div>
   );
 }
 
 /* ---------- drop zone ---------- */
 
-function DropZone({
-  dragging,
-  setDragging,
-  onDrop,
-  onPick,
-}: {
-  dragging: boolean;
-  setDragging: (v: boolean) => void;
-  onDrop: (e: React.DragEvent) => void;
-  onPick: () => void;
-}) {
+function DropZone({ onPick }: { onPick: () => void }) {
   return (
-    <div
-      className={`dropzone${dragging ? " dragging" : ""}`}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={onDrop}
-    >
+    <div className="dropzone">
       <div className="dropzone-icon">
         <Icon path={ICON.upload} size={26} />
       </div>
       <h2>MIDI ファイルをドロップ</h2>
-      <p>.mid / .midi 形式に対応しています</p>
+      <p>開いた曲はライブラリに残ります</p>
       <button className="btn-filled" onClick={onPick}>
         ファイルを選択
       </button>
@@ -664,6 +648,7 @@ function DropZone({
 
 function Toolbar({
   song,
+  title,
   position,
   isPlaying,
   volume,
@@ -677,6 +662,8 @@ function Toolbar({
   onOpen,
 }: {
   song: SongInfo;
+  /** The library's name for the song, which the user can rename. */
+  title: string;
   position: number;
   isPlaying: boolean;
   volume: number;
@@ -693,7 +680,7 @@ function Toolbar({
   const tsVaries = song.timeSignatures.length > 1;
   const keyVaries = song.keySignatures.length > 1;
   return (
-    <div className="toolbar">
+    <div className="toolbar" data-tauri-drag-region>
       <div className="toolbar-group">
         <button
           className="transport-btn"
@@ -738,7 +725,7 @@ function Toolbar({
       <div className="toolbar-sep" />
 
       <div className="song-title">
-        <div className="song-name">{song.name.replace(/\.midi?$/i, "")}</div>
+        <div className="song-name">{title}</div>
         <div className="song-meta">
           {tempoVaries ? (
             <>

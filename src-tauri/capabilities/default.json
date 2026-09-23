@@ -9,6 +9,7 @@
     "core:default",
     "dialog:allow-open",
     "dialog:allow-ask",
-    "opener:allow-open-url"
+    "opener:allow-open-url",
+    "opener:allow-reveal-item-in-dir"
   ]
 }

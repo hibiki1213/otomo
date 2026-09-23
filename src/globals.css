@@ -10,8 +10,13 @@
   --text: #e8eaed;
   --text-dim: #a4a8af;
   --text-faint: #6d7077;
-  --accent: #f5a623;
-  --accent-press: #d98e10;
+  --accent: #0a84ff;
+  --accent-press: #0066cc;
+  --accent-ink: #ffffff;
+  /* Let the desktop through behind the sidebar (macOS vibrancy). */
+  --sidebar: rgba(28, 30, 34, 0.5);
+  --control: rgba(255, 255, 255, 0.07);
+  --menu: rgba(38, 40, 45, 0.82);
   --accent-blue: #4da3ff;
   --danger: #ff5d5d;
   --playhead: #f5a623;
@@ -40,6 +45,11 @@
     --grid: rgba(0, 0, 0, 0.05);
     --grid-strong: rgba(0, 0, 0, 0.1);
     --roll-bg: #f4f5f7;
+    --accent: #007aff;
+    --accent-press: #0060df;
+    --sidebar: rgba(246, 247, 249, 0.55);
+    --control: rgba(255, 255, 255, 0.8);
+    --menu: rgba(250, 250, 252, 0.85);
     --shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset,
       0 8px 28px rgba(0, 0, 0, 0.08);
   }
@@ -52,14 +62,16 @@
 }
 
 html,
-body {
+body,
+#root {
   height: 100%;
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text",
     "Helvetica Neue", "Hiragino Sans", "Yu Gothic UI", sans-serif;
-  background: var(--bg);
+  /* Transparent so the window's vibrancy shows through the sidebar. */
+  background: transparent;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -81,37 +93,321 @@ button:focus-visible,
   outline-offset: 2px;
 }
 
-.app {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 16px 20px 24px;
-  gap: 14px;
+/* ---------- Window shell ----------
+   The window itself is translucent (macOS vibrancy), so the sidebar lets the
+   desktop through and only the content pane is opaque. */
+.shell {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
 }
 
-.footnote {
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+}
+
+/* Room for the traffic lights; also drags the window. */
+.sidebar-drag {
+  height: 38px;
+  flex: none;
+}
+
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 8px;
+}
+
+.sidebar-search input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--control);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.sidebar-search input::placeholder {
+  color: var(--text-faint);
+}
+
+.sidebar-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.icon-btn {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 6px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.sidebar-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+}
+
+.sidebar-head {
   font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  padding: 10px 8px 4px;
+  letter-spacing: 0.02em;
+}
+
+.sidebar-empty {
+  font-size: 12px;
   color: var(--text-faint);
   text-align: center;
-  line-height: 1.6;
-  padding: 0 24px;
+  padding: 32px 16px;
+  line-height: 1.7;
+}
+
+.sidebar-list ul {
+  list-style: none;
+}
+
+.song-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--text);
+}
+
+.song-row:hover {
+  background: var(--hover);
+}
+
+.song-row.current {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.song-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.song-title {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.song-sub {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.song-row.current .song-sub {
+  color: color-mix(in srgb, var(--accent-ink) 75%, transparent);
+}
+
+.song-star {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.song-row.current .song-star {
+  color: var(--accent-ink);
+}
+
+.song-rename {
+  font: inherit;
+  font-size: 12.5px;
+  width: 100%;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 1px 4px;
+  outline: none;
+}
+
+/* Three bars that animate only for the song that is sounding. */
+.song-state {
+  width: 10px;
+  height: 12px;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  opacity: 0;
+}
+
+.song-row.current .song-state {
+  opacity: 0.55;
+}
+
+.song-state i {
+  width: 2px;
+  height: 3px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.song-state.playing {
+  opacity: 1;
+}
+
+.song-state.playing i {
+  animation: song-bar 0.9s ease-in-out infinite;
+}
+
+.song-state.playing i:nth-child(2) {
+  animation-delay: 0.3s;
+}
+
+.song-state.playing i:nth-child(3) {
+  animation-delay: 0.6s;
+}
+
+@keyframes song-bar {
+  0%,
+  100% {
+    height: 3px;
+  }
+  50% {
+    height: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .song-state.playing i {
+    animation: none;
+    height: 7px;
+  }
+}
+
+/* ---------- Content pane ----------
+   Edge to edge, like a native window: the bars inside already carry their own
+   separators, so there is no card around them. */
+.content {
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Only for the empty state, where there is no toolbar to drag by. */
+.content-drag {
+  height: 38px;
+  flex: none;
+}
+
+/* ---------- Context menu ---------- */
+.context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--menu);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+.context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 12.5px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--text);
+}
+
+.context-menu button:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.context-menu button.danger {
+  color: var(--danger);
+}
+
+.context-menu button.danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.context-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-strong);
+}
+
+/* ---------- Drop target ---------- */
+.drop-overlay {
+  position: fixed;
+  inset: 8px;
+  z-index: 70;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drop-overlay p {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 /* ---------- Card / panels ---------- */
 .card {
   width: 100%;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
+  /* Fills the pane when the song is short, never squeezes when it isn't. */
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
 }
 
 /* ---------- Drop zone ---------- */
 .dropzone {
-  margin: 24px;
+  margin: auto;
+  width: min(420px, calc(100% - 48px));
   padding: 56px 32px;
   border: 1px dashed var(--border-strong);
   border-radius: 8px;
@@ -134,7 +430,7 @@ button:focus-visible,
   height: 52px;
   border-radius: 10px;
   background: var(--accent);
-  color: #1a1306;
+  color: var(--accent-ink);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -154,7 +450,7 @@ button:focus-visible,
 /* ---------- Buttons ---------- */
 .btn-filled {
   background: var(--accent);
-  color: #1a1306;
+  color: var(--accent-ink);
   font-size: 13px;
   font-weight: 600;
   padding: 8px 18px;
@@ -183,12 +479,17 @@ button:focus-visible,
 }
 
 /* ---------- Toolbar (transport header) ---------- */
+/* Doubles as this pane's title bar: it stays put while the views scroll, and
+   dragging its empty space moves the window. */
 .toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 10px 14px;
-  background: linear-gradient(to bottom, var(--panel-2), var(--panel));
+  padding: 12px 14px;
+  background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
 
@@ -226,7 +527,7 @@ button:focus-visible,
   width: 40px;
   background: var(--accent);
   border-color: rgba(0, 0, 0, 0.2);
-  color: #1a1306;
+  color: var(--accent-ink);
 }
 
 .transport-btn.primary:hover {
@@ -782,6 +1083,8 @@ input[type="range"]::-moz-range-thumb {
 
 /* ---------- Status bar ---------- */
 .statusbar {
+  /* Sits on the bottom edge even when the views are short. */
+  margin-top: auto;
   padding: 8px 14px;
   display: flex;
   align-items: center;
@@ -810,6 +1113,7 @@ input[type="range"]::-moz-range-thumb {
 
 /* ---------- Loading / errors ---------- */
 .loading {
+  margin: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -914,7 +1218,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .segmented button.on {
-  color: #1a1306;
+  color: var(--accent-ink);
   background: var(--accent);
 }
 

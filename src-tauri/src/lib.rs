@@ -4,6 +4,7 @@ mod asset_cache;
 mod engine;
 mod instruments;
 mod library;
+mod songs;
 mod spatial;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,6 +21,7 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            app.manage(songs::SongLibrary::open(app.handle())?);
             // Without an audio device the app still runs (web engine fallback).
             match engine::start() {
                 Ok(handle) => {
@@ -52,6 +54,13 @@ pub fn run() {
             library::library_install,
             library::library_remove,
             library::library_suggest,
+            songs::songs_list,
+            songs::songs_import,
+            songs::songs_data,
+            songs::songs_played,
+            songs::songs_rename,
+            songs::songs_set_favorite,
+            songs::songs_remove,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

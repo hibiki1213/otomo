@@ -21,9 +21,17 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "dragDropEnabled": false
+        "dragDropEnabled": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "transparent": true,
+        "windowEffects": {
+          "effects": ["sidebar"],
+          "state": "followsWindowActiveState"
+        }
       }
     ],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null
     }
