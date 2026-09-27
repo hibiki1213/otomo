@@ -22,6 +22,8 @@ use tauri::{AppHandle, Manager, State};
 pub struct SongLibrary {
     db: Mutex<Connection>,
     dir: PathBuf,
+    /// Where the MCP server leaves edits for a person to approve.
+    pending: PathBuf,
 }
 
 #[derive(Serialize, Clone)]
@@ -41,6 +43,8 @@ pub struct SongRecord {
     pub last_played: Option<i64>,
     pub play_count: i64,
     pub favorite: bool,
+    /// True when applying an edit replaced the song, so it can be undone once.
+    pub can_undo: bool,
 }
 
 const SCHEMA: &str = "
@@ -49,6 +53,7 @@ CREATE TABLE IF NOT EXISTS songs (
     title       TEXT    NOT NULL,
     file_name   TEXT    NOT NULL,
     hash        TEXT    NOT NULL UNIQUE,
+    previous_hash TEXT,
     bytes       INTEGER NOT NULL,
     source_path TEXT,
     duration    REAL    NOT NULL DEFAULT 0,
@@ -76,7 +81,10 @@ impl SongLibrary {
         db.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
             .map_err(|e| e.to_string())?;
         db.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
-        Ok(Self { db: Mutex::new(db), dir })
+        // Libraries made before applied edits existed have no room to
+        // remember what a song looked like beforehand; give them one.
+        let _ = db.execute("ALTER TABLE songs ADD COLUMN previous_hash TEXT", []);
+        Ok(Self { db: Mutex::new(db), dir, pending: root.join("pending") })
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
@@ -125,6 +133,10 @@ impl SongLibrary {
         get(&db, db.last_insert_rowid())
     }
 
+    fn pending_path(&self, id: i64) -> PathBuf {
+        self.pending.join(format!("{id}.mid"))
+    }
+
     fn read(&self, id: i64) -> Result<Vec<u8>, String> {
         let db = self.lock()?;
         let hash: String = db
@@ -138,7 +150,7 @@ impl SongLibrary {
 }
 
 const COLUMNS: &str = "id, title, file_name, bytes, source_path, duration, track_count,
-                       added_at, last_played, play_count, favorite";
+                       added_at, last_played, play_count, favorite, previous_hash";
 
 fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SongRecord> {
     Ok(SongRecord {
@@ -153,6 +165,7 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SongRecord> {
         last_played: r.get(8)?,
         play_count: r.get(9)?,
         favorite: r.get::<_, i64>(10)? != 0,
+        can_undo: r.get::<_, Option<String>>(11)?.is_some(),
     })
 }
 
@@ -161,7 +174,127 @@ fn get(db: &Connection, id: i64) -> Result<SongRecord, String> {
         .map_err(|e| e.to_string())
 }
 
+/// An edit the MCP server staged, waiting for a person to approve it.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingEdit {
+    pub song_id: i64,
+    pub title: String,
+    /// What the tools did, newest last.
+    pub changes: Vec<String>,
+    pub updated: i64,
+}
+
 /* ---------- commands ---------- */
+
+/// Edits waiting for approval, newest first.
+#[tauri::command]
+pub fn songs_pending(library: State<'_, SongLibrary>) -> Result<Vec<PendingEdit>, String> {
+    let Ok(entries) = std::fs::read_dir(&library.pending) else {
+        return Ok(Vec::new());
+    };
+    let db = library.lock()?;
+    let mut out: Vec<PendingEdit> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(note) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+        let Some(song_id) = note.get("songId").and_then(serde_json::Value::as_i64) else { continue };
+        // The song may have been deleted while the edit waited.
+        let Ok(song) = get(&db, song_id) else {
+            continue;
+        };
+        out.push(PendingEdit {
+            song_id,
+            title: song.title,
+            changes: note
+                .get("changes")
+                .and_then(serde_json::Value::as_array)
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                .unwrap_or_default(),
+            updated: note.get("updated").and_then(serde_json::Value::as_i64).unwrap_or(0),
+        });
+    }
+    out.sort_by_key(|p| std::cmp::Reverse(p.updated));
+    Ok(out)
+}
+
+/// The staged version's bytes, for previewing it before it is applied.
+#[tauri::command]
+pub fn songs_pending_data(library: State<'_, SongLibrary>, id: i64) -> Result<Response, String> {
+    let bytes = std::fs::read(library.pending_path(id))
+        .map_err(|_| "この曲に未適用の編集はありません".to_string())?;
+    Ok(Response::new(bytes))
+}
+
+/// Accept a staged edit: it becomes the song, and the version it replaced is
+/// kept so the change can be undone once.
+#[tauri::command]
+pub fn songs_apply_pending(library: State<'_, SongLibrary>, id: i64) -> Result<SongRecord, String> {
+    let data = std::fs::read(library.pending_path(id))
+        .map_err(|_| "この曲に未適用の編集はありません".to_string())?;
+    if data.is_empty() {
+        return Err("編集後のファイルが空です".into());
+    }
+    let hash = format!("{:x}", Sha256::digest(&data));
+    let path = library.path_for(&hash);
+    let tmp = path.with_extension("part");
+    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+
+    let db = library.lock()?;
+    // Duration and track count are what the old version measured; opening the
+    // new one replaces them.
+    db.execute(
+        "UPDATE songs
+         SET previous_hash = hash, hash = ?2, bytes = ?3, duration = 0, track_count = 0
+         WHERE id = ?1",
+        params![id, hash, data.len() as i64],
+    )
+    .map_err(|e| e.to_string())?;
+    let record = get(&db, id)?;
+    drop(db);
+    discard_pending(&library, id);
+    Ok(record)
+}
+
+/// Throw a staged edit away.
+#[tauri::command]
+pub fn songs_discard_pending(library: State<'_, SongLibrary>, id: i64) -> Result<(), String> {
+    discard_pending(&library, id);
+    Ok(())
+}
+
+fn discard_pending(library: &SongLibrary, id: i64) {
+    let _ = std::fs::remove_file(library.pending_path(id));
+    let _ = std::fs::remove_file(library.pending.join(format!("{id}.json")));
+}
+
+/// Put back the version an applied edit replaced.
+#[tauri::command]
+pub fn songs_undo_apply(library: State<'_, SongLibrary>, id: i64) -> Result<SongRecord, String> {
+    let db = library.lock()?;
+    let previous: Option<String> = db
+        .query_row("SELECT previous_hash FROM songs WHERE id = ?1", params![id], |r| r.get(0))
+        .optional()
+        .map_err(|e| e.to_string())?
+        .flatten();
+    let previous = previous.ok_or("この曲に戻せる版はありません")?;
+    let bytes = std::fs::metadata(library.path_for(&previous))
+        .map(|m| m.len() as i64)
+        .map_err(|_| "前の版のファイルが見つかりません".to_string())?;
+    db.execute(
+        "UPDATE songs
+         SET hash = ?2, previous_hash = NULL, bytes = ?3, duration = 0, track_count = 0
+         WHERE id = ?1",
+        params![id, previous, bytes],
+    )
+    .map_err(|e| e.to_string())?;
+    get(&db, id)
+}
 
 /// The library, most recently played first. `query` filters by title or file
 /// name; an empty query returns everything.
@@ -178,6 +311,13 @@ pub fn songs_list(library: State<'_, SongLibrary>, query: Option<String>) -> Res
         .map_err(|e| e.to_string())?;
     let rows = stmt.query_map(params![like], row).map_err(|e| e.to_string())?;
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())
+}
+
+/// One entry, by id.
+#[tauri::command]
+pub fn songs_get(library: State<'_, SongLibrary>, id: i64) -> Result<SongRecord, String> {
+    let db = library.lock()?;
+    get(&db, id)
 }
 
 /// Copy a MIDI file on disk into the library.
@@ -265,7 +405,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("songs")).unwrap();
         let db = Connection::open(dir.join("library.db")).unwrap();
         db.execute_batch(SCHEMA).unwrap();
-        SongLibrary { db: Mutex::new(db), dir: dir.join("songs") }
+        SongLibrary { db: Mutex::new(db), dir: dir.join("songs"), pending: dir.join("pending") }
     }
 
     #[test]

@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "tauri": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri",
     "app:dev": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
-    "app:build": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri build"
+    "app:build": "pnpm mcp:build && PATH=\"$HOME/.cargo/bin:$PATH\" tauri build",
+    "mcp:build": "./scripts/build-mcp.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

@@ -315,6 +315,68 @@ button:focus-visible,
   }
 }
 
+/* ---------- Claude connection ---------- */
+.claude-connect {
+  flex: none;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.connect-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--control);
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.connect-btn:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--border-strong);
+}
+
+.connect-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.connect-btn.on {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.connect-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.connect-dot.on {
+  background: #32d74b;
+  box-shadow: 0 0 0 3px rgba(50, 215, 75, 0.18);
+}
+
+.connect-note {
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--text-faint);
+  padding: 5px 2px 0;
+}
+
+.connect-error {
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--danger);
+  padding: 5px 2px 0;
+}
+
 /* ---------- Content pane ----------
    Edge to edge, like a native window: the bars inside already carry their own
    separators, so there is no card around them. */
@@ -393,6 +455,70 @@ button:focus-visible,
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
+}
+
+/* ---------- Pending edit (MCP) ---------- */
+.pending-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+
+.pending-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.pending-text strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.pending-text ul {
+  margin-top: 2px;
+  list-style: none;
+  color: var(--text-dim);
+}
+
+.pending-text li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.55;
+}
+
+.pending-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.btn-quiet {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+}
+
+.btn-quiet:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.btn-quiet:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pending-actions .btn-filled {
+  padding: 5px 14px;
+  font-size: 12px;
 }
 
 /* ---------- Card / panels ---------- */

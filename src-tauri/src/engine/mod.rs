@@ -735,6 +735,19 @@ pub async fn engine_load_song(handle: State<'_, EngineHandle>, request: Request<
     handle.send(Command::LoadSong(Box::new(loaded)))
 }
 
+/// Choose what a track plays through, from a thread that is not async — the
+/// MCP control socket. Blocks until the instrument is live, which is what the
+/// caller wants: it is about to ask for the track to be played.
+pub fn assign_instrument(
+    handle: &State<'_, EngineHandle>,
+    track: usize,
+    choice: InstrumentChoice,
+) -> Result<(), String> {
+    let generation = handle.song_generation.load(Ordering::SeqCst);
+    let sample_rate = handle.sample_rate;
+    tauri::async_runtime::block_on(set_track_instrument(handle, track, choice, generation, sample_rate))
+}
+
 /// Choose what a track plays through. SFZ files load on a worker thread;
 /// resolves once the instrument is live (or failed to load).
 #[tauri::command]

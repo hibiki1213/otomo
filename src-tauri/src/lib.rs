@@ -1,9 +1,11 @@
 use tauri::Manager;
 
 mod asset_cache;
+mod control;
 mod engine;
 mod instruments;
 mod library;
+mod mcp_setup;
 mod songs;
 mod spatial;
 
@@ -22,6 +24,7 @@ pub fn run() {
                 )?;
             }
             app.manage(songs::SongLibrary::open(app.handle())?);
+            control::start(app.handle());
             // Without an audio device the app still runs (web engine fallback).
             match engine::start() {
                 Ok(handle) => {
@@ -61,6 +64,15 @@ pub fn run() {
             songs::songs_rename,
             songs::songs_set_favorite,
             songs::songs_remove,
+            songs::songs_get,
+            songs::songs_pending,
+            songs::songs_pending_data,
+            songs::songs_apply_pending,
+            songs::songs_discard_pending,
+            songs::songs_undo_apply,
+            mcp_setup::mcp_status,
+            mcp_setup::mcp_connect,
+            mcp_setup::mcp_disconnect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

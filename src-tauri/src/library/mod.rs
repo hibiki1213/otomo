@@ -528,3 +528,71 @@ mod calibration {
         }
     }
 }
+
+/* ---------- for the MCP control socket ---------- */
+
+/// Everything this machine can play a part through: the SFZ instruments of
+/// installed libraries, and the audio plugins found on the system.
+///
+/// Listed here rather than in the UI because what is installed is Rust's to
+/// know, and the socket has to answer straight away.
+pub fn installed(app: &AppHandle) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for lib in CATALOG.iter() {
+        let Ok(dir) = library_dir(app, lib.id) else { continue };
+        if !is_installed(&dir) {
+            continue;
+        }
+        for entry in instruments_of(lib, &dir) {
+            out.push(serde_json::json!({
+                "id": entry.id,
+                "kind": "sfz",
+                "name": format!("{} — {}", entry.library_name, entry.name),
+            }));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    for plugin in crate::instruments::audio_unit::list_instruments() {
+        if let Ok(value) = serde_json::to_value(&plugin) {
+            let id = value.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_owned();
+            let name = value.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_owned();
+            out.push(serde_json::json!({ "id": format!("au:{id}"), "kind": "plugin", "name": name }));
+        }
+    }
+    out
+}
+
+/// Play `track` of the song on screen through the instrument called `id`.
+///
+/// This is a playback setting, not part of the song: it changes what the
+/// engine sounds, and nothing is written to the file.
+pub fn use_instrument(app: &AppHandle, track: usize, id: &str) -> Result<String, String> {
+    let (choice, label) = match id.strip_prefix("au:") {
+        Some(plugin) => (InstrumentChoice::AudioUnit { id: plugin.to_owned() }, id.to_owned()),
+        None if id == "sf2" || id.eq_ignore_ascii_case("default") => {
+            (InstrumentChoice::Sf2, "内蔵の SoundFont".to_owned())
+        }
+        None => {
+            let entry = find_instrument(app, id)
+                .ok_or_else(|| format!("{id}: そういう音源は入っていません。list_playback_instruments で確認してください。"))?;
+            let label = format!("{} — {}", entry.library_name, entry.name);
+            (entry.choice, label)
+        }
+    };
+    let handle = app.state::<crate::engine::EngineHandle>();
+    crate::engine::assign_instrument(&handle, track, choice)?;
+    Ok(format!("トラック{track} を「{label}」で鳴らします。"))
+}
+
+fn find_instrument(app: &AppHandle, id: &str) -> Option<InstrumentEntry> {
+    for lib in CATALOG.iter() {
+        let dir = library_dir(app, lib.id).ok()?;
+        if !is_installed(&dir) {
+            continue;
+        }
+        if let Some(found) = instruments_of(lib, &dir).into_iter().find(|e| e.id == id) {
+            return Some(found);
+        }
+    }
+    None
+}

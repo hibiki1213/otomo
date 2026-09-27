@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SongInfo } from "./midiEngine";
 import type { SongSource } from "@/components/Player";
 import {
+  applyPending,
+  discardPending,
+  getSong,
   importSong,
+  listPendingEdits,
+  pendingData,
+  undoApply,
   libraryAvailable,
   listSongs,
   pickMidiFiles,
@@ -11,6 +17,7 @@ import {
   setSongFavorite,
   songData,
   songPlayed,
+  type PendingEdit,
   type SongRecord,
 } from "./songsApi";
 
@@ -24,8 +31,12 @@ export function useSongLibrary() {
   const [current, setCurrent] = useState<SongRecord | null>(null);
   const [source, setSource] = useState<SongSource | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingEdit[]>([]);
   // Ignore bytes that arrive after another song was picked.
   const wanted = useRef<number | null>(null);
+  // Bumped per request, so asking for the same song again still reloads it
+  // while editing the entry (a rename) never does.
+  const token = useRef(0);
 
   const refresh = useCallback(async (q = ""): Promise<SongRecord[]> => {
     if (!libraryAvailable()) return [];
@@ -44,20 +55,58 @@ export function useSongLibrary() {
     return () => clearTimeout(t);
   }, [query, refresh]);
 
-  /** Load a library entry into the player. */
-  const play = useCallback(async (song: SongRecord) => {
-    wanted.current = song.id;
-    setError(null);
-    setCurrent(song);
+  const refreshPending = useCallback(async () => {
+    if (!libraryAvailable()) return;
     try {
-      const buffer = await songData(song.id);
-      if (wanted.current !== song.id) return;
-      setSource({ id: song.id, name: song.fileName, title: song.title, buffer });
+      setPending(await listPendingEdits());
     } catch (e) {
-      console.error(e);
-      setError(`「${song.title}」を開けませんでした。`);
+      console.error("pending edits", e);
     }
   }, []);
+
+  // Edits can also be staged while the app is closed, so look on startup.
+  useEffect(() => {
+    void refreshPending();
+  }, [refreshPending]);
+
+  /**
+   * Load a library entry into the player, optionally starting at `startAt`
+   * seconds and playing straight away (which is what MCP's `play` asks for).
+   */
+  const play = useCallback(
+    async (
+      song: SongRecord,
+      startAt?: number,
+      staged = false,
+      range?: { stopAt?: number; loop?: boolean; solo?: number[] }
+    ) => {
+      wanted.current = song.id;
+      const mine = ++token.current;
+      setError(null);
+      setCurrent(song);
+      try {
+        const buffer = staged
+          ? await pendingData(song.id)
+          : await songData(song.id);
+        if (token.current !== mine) return;
+        setSource({
+          id: song.id,
+          token: mine,
+          name: song.fileName,
+          title: song.title,
+          buffer,
+          startAt,
+          autoplay: startAt !== undefined,
+          staged,
+          ...range,
+        });
+      } catch (e) {
+        console.error(e);
+        setError(`「${song.title}」を開けませんでした。`);
+      }
+    },
+    []
+  );
 
   /** Import files from disk (open panel or drop) and play the first one. */
   const importPaths = useCallback(
@@ -125,6 +174,83 @@ export function useSongLibrary() {
     openFiles,
     importPaths,
     onLoaded,
+    pending,
+    refreshPending,
+    /** Play a song by id — the route the MCP server's `play` tool takes. */
+    playById: useCallback(
+      async (
+        id: number,
+        seconds: number,
+        staged = false,
+        range?: { stopAt?: number; loop?: boolean; solo?: number[] }
+      ) => {
+        try {
+          await play(await getSong(id), seconds, staged, range);
+        } catch (e) {
+          console.error(e);
+          setError(String(e));
+        }
+      },
+      [play]
+    ),
+    /** Listen to a staged edit before deciding on it. */
+    previewPending: useCallback(
+      async (songId: number) => {
+        try {
+          await play(await getSong(songId), 0, true);
+        } catch (e) {
+          console.error(e);
+          setError(String(e));
+        }
+      },
+      [play]
+    ),
+    applyEdit: useCallback(
+      async (songId: number) => {
+        try {
+          const record = await applyPending(songId);
+          await refreshPending();
+          await refresh(query);
+          await play(record);
+        } catch (e) {
+          console.error(e);
+          setError(String(e));
+        }
+      },
+      [play, query, refresh, refreshPending]
+    ),
+    discardEdit: useCallback(
+      async (songId: number) => {
+        try {
+          await discardPending(songId);
+        } catch (e) {
+          console.error(e);
+          setError(String(e));
+        }
+        await refreshPending();
+        // Whatever was being previewed is gone; go back to the saved song.
+        if (wanted.current === songId) {
+          try {
+            await play(await getSong(songId));
+          } catch {
+            /* the song may have gone too */
+          }
+        }
+      },
+      [play, refreshPending]
+    ),
+    undoEdit: useCallback(
+      async (songId: number) => {
+        try {
+          await play(await undoApply(songId));
+          await refresh(query);
+        } catch (e) {
+          console.error(e);
+          setError(String(e));
+        }
+      },
+      [play, query, refresh]
+    ),
     rename: useCallback(
       (id: number, title: string) => mutate(id, () => renameSong(id, title)),
       [mutate]

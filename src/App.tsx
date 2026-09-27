@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import PendingBar from "@/components/PendingBar";
 import Player from "@/components/Player";
 import Sidebar from "@/components/Sidebar";
 import type { PlayerState } from "@/lib/midiEngine";
@@ -9,6 +10,8 @@ export default function App() {
   const library = useSongLibrary();
   const [state, setState] = useState<PlayerState>("idle");
   const [dropping, setDropping] = useState(false);
+  // Bumped when MCP asks for silence; the player watches it.
+  const [stopRequest, setStopRequest] = useState(0);
   const { importPaths, openFiles } = library;
 
   // Files dropped on the window arrive from the OS with real paths, so they
@@ -36,6 +39,48 @@ export default function App() {
     };
   }, [importPaths]);
 
+  // The MCP server asks the running app to play, so the user can hear what
+  // Claude is talking about (see src-tauri/src/control.rs).
+  const { playById, refreshPending } = library;
+  useEffect(() => {
+    if (!libraryAvailable()) return;
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const un = await listen<{
+        cmd: string;
+        songId?: number;
+        seconds?: number;
+        until?: number | null;
+        looping?: boolean;
+        solo?: number[] | null;
+        pending?: boolean;
+      }>(
+        "midiss://control",
+        (e) => {
+          if (e.payload.cmd === "play" && e.payload.songId != null) {
+            void playById(e.payload.songId, e.payload.seconds ?? 0, e.payload.pending, {
+              stopAt: e.payload.until ?? undefined,
+              loop: e.payload.looping,
+              solo: e.payload.solo ?? undefined,
+            });
+          } else if (e.payload.cmd === "stop") {
+            setStopRequest((n) => n + 1);
+          } else if (e.payload.cmd === "staged") {
+            void refreshPending();
+          }
+        }
+      );
+      if (cancelled) un();
+      else stop = un;
+    })();
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [playById, refreshPending]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") {
@@ -59,10 +104,21 @@ export default function App() {
             {library.error}
           </div>
         )}
+        {library.pending.map((edit) => (
+          <PendingBar
+            key={edit.songId}
+            edit={edit}
+            library={library}
+            previewing={
+              library.source?.staged === true && library.source.id === edit.songId
+            }
+          />
+        ))}
         <Player
           source={library.source}
           onLoaded={library.onLoaded}
           onStateChange={setState}
+          stopRequest={stopRequest}
           onOpenFiles={openFiles}
         />
       </main>

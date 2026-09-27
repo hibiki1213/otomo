@@ -26,7 +26,9 @@
         "hiddenTitle": true,
         "transparent": true,
         "windowEffects": {
-          "effects": ["sidebar"],
+          "effects": [
+            "sidebar"
+          ],
           "state": "followsWindowActiveState"
         }
       }
@@ -50,6 +52,9 @@
     "shortDescription": "MIDI player",
     "macOS": {
       "minimumSystemVersion": "11.0"
-    }
+    },
+    "externalBin": [
+      "binaries/midiss-mcp"
+    ]
   }
 }

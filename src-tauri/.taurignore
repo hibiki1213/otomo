@@ -2,3 +2,5 @@
 # watching it makes `tauri dev` rebuild forever.
 vendor/
 src/engine/tests.rs
+# The staged MCP sidecar is a build product, not a source.
+binaries/

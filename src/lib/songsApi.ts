@@ -17,9 +17,22 @@ export interface SongRecord {
   lastPlayed: number | null;
   playCount: number;
   favorite: boolean;
+  /** An applied edit replaced this song, so it can be put back once. */
+  canUndo: boolean;
+}
+
+/** An edit the MCP server staged, waiting for approval. */
+export interface PendingEdit {
+  songId: number;
+  title: string;
+  /** What the tools did, newest last. */
+  changes: string[];
+  updated: number;
 }
 
 export const libraryAvailable = () => "__TAURI_INTERNALS__" in window;
+
+export const getSong = (id: number) => invoke<SongRecord>("songs_get", { id });
 
 export const listSongs = (query?: string) =>
   invoke<SongRecord[]>("songs_list", { query: query || null });
@@ -29,8 +42,7 @@ export const importSong = (path: string) =>
   invoke<SongRecord>("songs_import", { path });
 
 export async function songData(id: number): Promise<ArrayBuffer> {
-  const bytes = await invoke<ArrayBuffer | number[]>("songs_data", { id });
-  return bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes).buffer;
+  return invoke<ArrayBuffer>("songs_data", { id });
 }
 
 export const songPlayed = (id: number, duration: number, trackCount: number) =>
@@ -44,6 +56,21 @@ export const setSongFavorite = (id: number, favorite: boolean) =>
 
 export const removeSong = (id: number) =>
   invoke<void>("songs_remove", { id });
+
+export const listPendingEdits = () => invoke<PendingEdit[]>("songs_pending");
+
+export async function pendingData(id: number): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("songs_pending_data", { id });
+}
+
+export const applyPending = (id: number) =>
+  invoke<SongRecord>("songs_apply_pending", { id });
+
+export const discardPending = (id: number) =>
+  invoke<void>("songs_discard_pending", { id });
+
+export const undoApply = (id: number) =>
+  invoke<SongRecord>("songs_undo_apply", { id });
 
 /** The system open panel, filtered to MIDI. Returns the chosen paths. */
 export async function pickMidiFiles(): Promise<string[]> {

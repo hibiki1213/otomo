@@ -194,11 +194,23 @@ function formatDuration(seconds: number): string {
 /** The song to play, taken from the library (see `songsApi`). */
 export interface SongSource {
   id: number;
+  /** Changes per request, so the same song can be re-opened at a new spot. */
+  token: number;
   /** File name, as the MIDI parser sees it. */
   name: string;
   /** What the library calls it; shown in the toolbar. */
   title: string;
   buffer: ArrayBuffer;
+  /** Where to start, in seconds (MCP asks for a bar; it arrives resolved). */
+  startAt?: number;
+  /** Stop here — or go back to `startAt` when looping. */
+  stopAt?: number;
+  loop?: boolean;
+  /** Sound only these tracks (MCP's "let me hear just the horns"). */
+  solo?: number[];
+  autoplay?: boolean;
+  /** True when this is an edit waiting for approval, not the saved song. */
+  staged?: boolean;
 }
 
 export default function Player({
@@ -206,12 +218,15 @@ export default function Player({
   onLoaded,
   onStateChange,
   onOpenFiles,
+  stopRequest,
 }: {
   source: SongSource | null;
   /** Reports what opening the song revealed, for the library entry. */
   onLoaded: (id: number, info: SongInfo) => void;
   onStateChange: (state: PlayerState) => void;
   onOpenFiles: () => void;
+  /** Changes when something outside the UI asks playback to stop (MCP). */
+  stopRequest: number;
 }) {
   const engineRef = useRef<PlaybackEngine | null>(null);
   const lastSongRef = useRef<{
@@ -250,7 +265,14 @@ export default function Player({
   onStateChangeRef.current = onStateChange;
 
   const loadBuffer = useCallback(
-    async (buffer: ArrayBuffer, name: string, id: number) => {
+    async (
+      buffer: ArrayBuffer,
+      name: string,
+      id: number,
+      startAt?: number,
+      autoplay?: boolean,
+      solo?: number[]
+    ) => {
       const engine = engineRef.current;
       if (!engine) return;
       setError(null);
@@ -260,11 +282,20 @@ export default function Player({
         const info = await engine.load(buffer, name);
         if (engineRef.current !== engine) return;
         setSong(info);
-        setMuted(new Array(info.tracks.length).fill(false));
+        // A solo request mutes everything else rather than adding a second
+        // notion of "audible" the user would have to undo twice.
+        const silent = info.tracks.map((_, i) => !!solo && !solo.includes(i));
+        setMuted(silent);
+        silent.forEach((m, i) => m && engine.setTrackMuted(i, true));
         setTrackPrograms(info.tracks.map((t) => t.program));
         setLoadingTracks(new Set());
         setPosition(0);
         engine.setMasterVolume(volumeRef.current);
+        if (startAt) {
+          engine.seek(startAt);
+          setPosition(startAt);
+        }
+        if (autoplay) engine.play();
         onLoadedRef.current(id, info);
       } catch (e) {
         console.error(e);
@@ -292,14 +323,25 @@ export default function Player({
     return () => engine.dispose();
   }, [engineKind, loadBuffer]);
 
-  // A different song was picked in the library. Keyed on the id, so editing
-  // the entry (a rename, say) never interrupts what is playing.
+  // A different song was picked in the library. Keyed on the request token,
+  // so editing the entry (a rename, say) never interrupts what is playing.
   const sourceRef = useRef(source);
   sourceRef.current = source;
   useEffect(() => {
     const s = sourceRef.current;
-    if (s) void loadBuffer(s.buffer, s.name, s.id);
-  }, [source?.id, loadBuffer]);
+    if (s) void loadBuffer(s.buffer, s.name, s.id, s.startAt, s.autoplay, s.solo);
+  }, [source?.token, loadBuffer]);
+
+  // A passage on repeat is how a correction gets checked, so the range is
+  // watched here rather than being left to the engine.
+  useEffect(() => {
+    const stopAt = source?.stopAt;
+    if (stopAt === undefined || position < stopAt) return;
+    const engine = engineRef.current;
+    if (!engine || engine.state !== "playing") return;
+    if (source?.loop) engine.seek(source.startAt ?? 0);
+    else engine.pause();
+  }, [position, source?.stopAt, source?.loop, source?.startAt]);
 
   const togglePlay = useCallback(() => {
     const engine = engineRef.current;
@@ -348,6 +390,10 @@ export default function Player({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [song, togglePlay]);
+
+  useEffect(() => {
+    if (stopRequest > 0) engineRef.current?.pause();
+  }, [stopRequest]);
 
   const toggleMute = useCallback((index: number) => {
     setMuted((prev) => {

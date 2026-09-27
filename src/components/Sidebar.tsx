@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import ClaudeConnection from "@/components/ClaudeConnection";
 import type { SongRecord } from "@/lib/songsApi";
 import type { SongLibrary } from "@/lib/useSongLibrary";
 
@@ -140,6 +141,8 @@ export default function Sidebar({
         )}
       </nav>
 
+      <ClaudeConnection />
+
       {menu && (
         <div
           className="context-menu"
@@ -162,6 +165,16 @@ export default function Sidebar({
           >
             {menu.song.favorite ? "お気に入りから外す" : "お気に入りに追加"}
           </button>
+          {menu.song.canUndo && (
+            <button
+              onClick={() => {
+                void library.undoEdit(menu.song.id);
+                setMenu(null);
+              }}
+            >
+              編集を取り消す
+            </button>
+          )}
           {menu.song.sourcePath && (
             <button
               onClick={() => {

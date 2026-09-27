@@ -2344,6 +2344,7 @@ dependencies = [
  "libc",
  "log",
  "lzma-rs",
+ "midiss-score",
  "objc2",
  "objc2-app-kit",
  "objc2-audio-toolbox",
@@ -2369,6 +2370,29 @@ dependencies = [
  "tokio",
  "zip",
 ]
+
+[[package]]
+name = "midiss-mcp"
+version = "0.1.0"
+dependencies = [
+ "midiss-score",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "midiss-score"
+version = "0.1.0"
+dependencies = [
+ "midly",
+]
+
+[[package]]
+name = "midly"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "207d755f4cb882d20c4da58d707ca9130a0c9bc5061f657a4f299b8e36362b7a"
 
 [[package]]
 name = "mime"
