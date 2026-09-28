@@ -7,6 +7,7 @@
 
 use std::io::{BufRead, Write};
 
+use base64::Engine;
 use serde_json::{json, Value};
 
 /// The newest protocol revision this server was written against. Clients that
@@ -21,11 +22,24 @@ pub struct Tool {
     pub schema: Value,
 }
 
+/// What a tool answers: text, and sometimes pictures for the model to look at.
+pub struct Reply {
+    pub text: String,
+    /// (MIME type, bytes)
+    pub images: Vec<(&'static str, Vec<u8>)>,
+}
+
+impl From<String> for Reply {
+    fn from(text: String) -> Self {
+        Reply { text, images: Vec::new() }
+    }
+}
+
 /// What a server must provide to be served over stdio.
 pub trait Handler {
     fn tools(&self) -> Vec<Tool>;
-    /// Returns the text to show, or an error message to show as a failure.
-    fn call(&mut self, name: &str, args: &Value) -> Result<String, String>;
+    /// Returns what to show, or an error message to show as a failure.
+    fn call(&mut self, name: &str, args: &Value) -> Result<Reply, String>;
     fn server_name(&self) -> &'static str;
     fn server_version(&self) -> &'static str;
 }
@@ -88,11 +102,19 @@ fn handle_line(handler: &mut impl Handler, line: &str) -> Option<String> {
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
             // A failing tool is a result with isError, not a protocol error:
             // that way the model sees the message and can correct itself.
-            let (text, failed) = match handler.call(name, &args) {
-                Ok(text) => (text, false),
-                Err(message) => (message, true),
+            let (reply, failed) = match handler.call(name, &args) {
+                Ok(reply) => (reply, false),
+                Err(message) => (Reply::from(message), true),
             };
-            Ok(json!({ "content": [{ "type": "text", "text": text }], "isError": failed }))
+            let mut content = vec![json!({ "type": "text", "text": reply.text })];
+            for (mime, bytes) in &reply.images {
+                content.push(json!({
+                    "type": "image",
+                    "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+                    "mimeType": mime,
+                }));
+            }
+            Ok(json!({ "content": content, "isError": failed }))
         }
         other => Err((-32601, format!("method not found: {other}"))),
     };
@@ -139,9 +161,10 @@ mod tests {
         fn tools(&self) -> Vec<Tool> {
             vec![Tool { name: "echo", description: "says it back", schema: json!({"type": "object"}) }]
         }
-        fn call(&mut self, name: &str, args: &Value) -> Result<String, String> {
+        fn call(&mut self, name: &str, args: &Value) -> Result<Reply, String> {
             match name {
-                "echo" => Ok(args.get("text").and_then(Value::as_str).unwrap_or("").to_owned()),
+                "echo" => Ok(args.get("text").and_then(Value::as_str).unwrap_or("").to_owned().into()),
+                "picture" => Ok(Reply { text: "a dot".into(), images: vec![("image/png", vec![1, 2, 3])] }),
                 _ => Err(format!("unknown tool: {name}")),
             }
         }
@@ -190,6 +213,19 @@ mod tests {
         assert_eq!(replies[1]["result"]["isError"], true);
         assert!(replies[1]["result"]["content"][0]["text"].as_str().unwrap().contains("nope"));
         assert_eq!(replies[2]["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn pictures_follow_the_text() {
+        let replies = exchange(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"picture"}}
+"#,
+        );
+        let content = &replies[0]["result"]["content"];
+        assert_eq!(content[0]["text"], "a dot");
+        assert_eq!(content[1]["type"], "image");
+        assert_eq!(content[1]["mimeType"], "image/png");
+        assert_eq!(content[1]["data"], "AQID");
     }
 
     #[test]

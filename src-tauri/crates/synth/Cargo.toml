@@ -1,0 +1,7 @@
+[package]
+name = "midiss-synth"
+version = "0.1.0"
+edition = "2021"
+description = "Built-in subtractive synthesizer and drum machine for EDM-style sounds"
+
+[dependencies]

@@ -90,6 +90,27 @@ fn entry_for(lib: &CatalogLibrary, inst: &CatalogInstrument, dir: &Path) -> Opti
     })
 }
 
+/// The built-in synthesizer's presets, listed like an installed library's
+/// instruments (always there: nothing to download).
+pub fn builtin_instruments() -> Vec<InstrumentEntry> {
+    midiss_synth::PRESETS.iter().map(synth_entry).collect()
+}
+
+fn synth_entry(p: &midiss_synth::Preset) -> InstrumentEntry {
+    InstrumentEntry {
+        id: format!("synth:{}", p.id),
+        name: p.name.to_string(),
+        library: "builtin-synth".into(),
+        library_name: "内蔵シンセ".into(),
+        choice: InstrumentChoice::Synth { preset: p.id.to_string() },
+    }
+}
+
+#[tauri::command]
+pub fn synth_presets() -> Vec<InstrumentEntry> {
+    builtin_instruments()
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryStatus {
@@ -306,6 +327,9 @@ pub fn library_suggest(app: AppHandle, tracks: Vec<TrackProgram>) -> Result<Vec<
                     .find(|i| i.percussion == t.percussion && (t.percussion || i.programs.contains(&t.program)))?;
                 entry_for(lib, inst, dir)
             })
+            // GM's synth programs sound thin on a SoundFont; the built-in
+            // synth plays them when no downloaded library does.
+            .or_else(|| (!t.percussion).then(|| midiss_synth::for_program(t.program).map(synth_entry)).flatten())
         })
         .collect())
 }
@@ -551,6 +575,14 @@ pub fn installed(app: &AppHandle) -> Vec<serde_json::Value> {
             }));
         }
     }
+    for p in midiss_synth::PRESETS {
+        out.push(serde_json::json!({
+            "id": format!("synth:{}", p.id),
+            "kind": "synth",
+            "name": format!("内蔵シンセ — {}", p.name),
+            "description": p.description,
+        }));
+    }
     #[cfg(target_os = "macos")]
     for plugin in crate::instruments::audio_unit::list_instruments() {
         if let Ok(value) = serde_json::to_value(&plugin) {
@@ -585,6 +617,10 @@ pub fn use_instrument(app: &AppHandle, track: usize, id: &str) -> Result<String,
 }
 
 fn find_instrument(app: &AppHandle, id: &str) -> Option<InstrumentEntry> {
+    let preset = id.strip_prefix("synth:").unwrap_or(id);
+    if let Some(p) = midiss_synth::PRESETS.iter().find(|p| p.id == preset) {
+        return Some(synth_entry(p));
+    }
     for lib in CATALOG.iter() {
         let dir = library_dir(app, lib.id).ok()?;
         if !is_installed(&dir) {

@@ -6,8 +6,10 @@
 
 mod control;
 mod edit_tools;
+mod fetch;
 mod library;
 mod pending;
+mod picture;
 mod rpc;
 mod tools;
 

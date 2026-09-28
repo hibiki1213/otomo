@@ -3,6 +3,7 @@ import type { SongInfo } from "./midiEngine";
 import {
   listLibraries,
   listPlugins,
+  listSynthPresets,
   setTrackInstrument,
   suggestInstruments,
   type InstrumentChoice,
@@ -35,8 +36,9 @@ function loadAuto(): boolean {
 }
 
 /**
- * Per-track instrument assignment for the native engine: installed SFZ
- * instruments, AudioUnit plugins, auto-assignment on song load.
+ * Per-track instrument assignment for the native engine: the built-in
+ * synth, installed SFZ instruments, AudioUnit plugins, auto-assignment on
+ * song load.
  */
 export function useTrackInstruments(song: SongInfo | null, enabled: boolean) {
   const [states, setStates] = useState<TrackInstrumentState[]>([]);
@@ -49,8 +51,12 @@ export function useTrackInstruments(song: SongInfo | null, enabled: boolean) {
   const refreshCatalog = useCallback(async () => {
     if (!enabled) return;
     try {
-      const [libs, plugs] = await Promise.all([listLibraries(), listPlugins()]);
-      setInstalled(libs.flatMap((l) => l.instruments));
+      const [synths, libs, plugs] = await Promise.all([
+        listSynthPresets(),
+        listLibraries(),
+        listPlugins(),
+      ]);
+      setInstalled([...synths, ...libs.flatMap((l) => l.instruments)]);
       setPlugins(plugs);
     } catch (e) {
       console.error("instrument catalog", e);

@@ -17,7 +17,8 @@ pub fn tools() -> Vec<Tool> {
     vec![
         Tool {
             name: "create_song",
-            description: "空の曲をライブラリに作る。作ったあと add_track と write_bars で中身を書く。",
+            description: "空の曲をライブラリに作る。作ったあと add_track と write_bars で中身を書く。\
+                          既にある曲（国歌・クラシック・民謡など）なら、先にウェブで MIDI や楽譜を探して download で取り込む。",
             schema: json!({
                 "type": "object",
                 "properties": {

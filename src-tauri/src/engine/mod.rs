@@ -73,6 +73,7 @@ pub enum Command {
     Seek(u64),
     MasterVolume(f32),
     Mute(usize, bool),
+    Gain(usize, f32),
     Program(usize, u8),
     SetSource(usize, Source),
     SetScene(Box<Scene>),
@@ -278,6 +279,7 @@ impl Renderer {
             }
             Command::MasterVolume(v) => self.master_volume = v.clamp(0.0, 1.0),
             Command::Mute(track, muted) => p.set_muted(track, muted),
+            Command::Gain(track, gain) => p.set_gain(track, gain),
             Command::Program(track, program) => p.set_program(track, program),
             Command::SetSource(track, source) => {
                 if let Some(old) = p.set_source(track, source) {
@@ -764,6 +766,7 @@ pub async fn engine_set_track_instrument(
         InstrumentChoice::Sfz { path, .. } => path.rsplit('/').next().unwrap_or(path).to_string(),
         InstrumentChoice::SfzSplit { parts, .. } => format!("split of {}", parts.len()),
         InstrumentChoice::AudioUnit { id } => format!("AudioUnit {id}"),
+        InstrumentChoice::Synth { preset } => format!("synth {preset}"),
     };
     let result = set_track_instrument(&handle, track, choice, generation, sample_rate).await;
     match &result {
@@ -804,6 +807,9 @@ async fn set_track_instrument(
             .await
             .map_err(|e| e.to_string())??;
             Source::External(Box::new(inst))
+        }
+        InstrumentChoice::Synth { preset } => {
+            Source::External(Box::new(crate::instruments::synth::SynthInstrument::load(&preset, sample_rate)?))
         }
         #[cfg(target_os = "macos")]
         InstrumentChoice::AudioUnit { id } => {
@@ -898,6 +904,12 @@ pub fn engine_set_track_muted(handle: State<'_, EngineHandle>, track: usize, mut
 }
 
 /// SoundFont program for a track; takes effect immediately.
+/// A track's fader, as a linear gain (1 = unchanged).
+#[tauri::command]
+pub fn engine_set_track_gain(handle: State<'_, EngineHandle>, track: usize, gain: f32) -> Result<(), String> {
+    handle.send(Command::Gain(track, gain))
+}
+
 #[tauri::command]
 pub fn engine_set_track_program(handle: State<'_, EngineHandle>, track: usize, program: u8) -> Result<(), String> {
     handle.send(Command::Program(track, program))

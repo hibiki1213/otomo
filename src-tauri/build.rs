@@ -32,6 +32,9 @@ fn build_sfizz() {
         .define("ENABLE_LTO", "OFF")
         .define("PROJECT_SYSTEM_PROCESSOR", processor)
         .define("CMAKE_DISABLE_FIND_PACKAGE_OpenMP", "ON")
+        // Newer clang makes the bundled atomic_queue's `Base::template f(...)`
+        // (no template argument list) a hard error by default.
+        .cxxflag("-Wno-missing-template-arg-list-after-template-kw")
         .build_target("sfizz_static")
         .build();
 

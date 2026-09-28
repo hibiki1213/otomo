@@ -72,11 +72,11 @@ export const discardPending = (id: number) =>
 export const undoApply = (id: number) =>
   invoke<SongRecord>("songs_undo_apply", { id });
 
-/** The system open panel, filtered to MIDI. Returns the chosen paths. */
+/** The system open panel, filtered to MIDI and MusicXML. Returns the chosen paths. */
 export async function pickMidiFiles(): Promise<string[]> {
   const picked = await open({
     multiple: true,
-    filters: [{ name: "MIDI", extensions: ["mid", "midi"] }],
+    filters: [{ name: "MIDI・MusicXML", extensions: ["mid", "midi", "musicxml", "xml", "mxl"] }],
   });
   if (!picked) return [];
   return Array.isArray(picked) ? picked : [picked];

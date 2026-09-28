@@ -695,6 +695,8 @@ export interface PlaybackEngine {
   seek(time: number): Promise<void>;
   setMasterVolume(value: number): void;
   setTrackMuted(index: number, muted: boolean): void;
+  /** A track's fader, as a linear gain (1 = as written). */
+  setTrackGain(index: number, gain: number): void;
   setTrackProgram(trackIndex: number, program: number): Promise<void>;
   position(): number;
   dispose(): void;
@@ -732,6 +734,7 @@ export class MidiEngine implements PlaybackEngine {
   private notes: NoteEvent[] = [];
   private tracksData: InternalTrackData[] = [];
   private muted: boolean[] = [];
+  private trackGains: number[] = [];
 
   duration = 0;
   state: PlayerState = "idle";
@@ -808,6 +811,7 @@ export class MidiEngine implements PlaybackEngine {
     this.trackInstruments = [];
     this.trackPrograms = [];
     this.muted = [];
+    this.trackGains = [];
     const loadJobs: Promise<unknown>[] = [];
 
     for (const track of info.tracks) {
@@ -834,6 +838,7 @@ export class MidiEngine implements PlaybackEngine {
       this.panNodes.push(panNode);
       this.reverbSends.push(reverbSend);
       this.muted.push(false);
+      this.trackGains.push(1);
       this.isPercussionTrack.push(track.isPercussion);
       this.trackPrograms.push(track.program);
 
@@ -919,8 +924,20 @@ export class MidiEngine implements PlaybackEngine {
 
   setTrackMuted(index: number, mutedState: boolean) {
     this.muted[index] = mutedState;
-    const gain = this.muteGains[index];
-    if (gain) gain.gain.value = mutedState ? 0 : 1;
+    this.applyTrackGain(index);
+  }
+
+  setTrackGain(index: number, gain: number) {
+    this.trackGains[index] = Math.max(0, gain);
+    this.applyTrackGain(index);
+  }
+
+  /** Mute and fader share one node: the fader's level, or silence. */
+  private applyTrackGain(index: number) {
+    const node = this.muteGains[index];
+    if (!node || !this.ctx) return;
+    const target = this.muted[index] ? 0 : (this.trackGains[index] ?? 1);
+    node.gain.setTargetAtTime(target, this.ctx.currentTime, 0.01);
   }
 
   /**

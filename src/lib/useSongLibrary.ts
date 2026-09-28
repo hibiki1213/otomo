@@ -176,6 +176,8 @@ export function useSongLibrary() {
     onLoaded,
     pending,
     refreshPending,
+    /** Re-read the list, for songs added from outside (Claude's create_song). */
+    refreshSongs: useCallback(() => refresh(query), [query, refresh]),
     /** Play a song by id — the route the MCP server's `play` tool takes. */
     playById: useCallback(
       async (

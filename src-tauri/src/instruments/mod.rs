@@ -3,6 +3,7 @@
 #[cfg(target_os = "macos")]
 pub mod audio_unit;
 pub mod sfz;
+pub mod synth;
 
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +28,8 @@ pub enum InstrumentChoice {
     },
     /// An AudioUnit instrument, by `audio_unit::PluginInfo::id`.
     AudioUnit { id: String },
+    /// A preset of the built-in synthesizer (`midiss_synth::PRESETS`).
+    Synth { preset: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

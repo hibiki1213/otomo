@@ -32,6 +32,10 @@ pub(crate) struct Channel {
     pitch_bend: f32,
 
     last_data_type: DataType,
+
+    // midiss: the mixer's level for this channel (linear). A host setting,
+    // not a MIDI controller, so no reset touches it.
+    pub(crate) gain: f32,
 }
 
 impl Channel {
@@ -53,6 +57,7 @@ impl Channel {
             fine_tune: 0,
             pitch_bend: 0_f32,
             last_data_type: DataType::None,
+            gain: 1_f32,
         };
 
         channel.reset();

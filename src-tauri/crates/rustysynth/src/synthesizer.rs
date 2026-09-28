@@ -415,6 +415,15 @@ impl Synthesizer {
             .map_or(0_f32, |c| (c.get_pan() / 50_f32).clamp(-1_f32, 1_f32))
     }
 
+    /// midiss: mixer level of a channel (linear, 1 = as the file says).
+    /// Applied per voice, so sounding notes follow it without a click and
+    /// the chorus and reverb sends move with it.
+    pub fn set_channel_gain(&mut self, channel: usize, gain: f32) {
+        if let Some(c) = self.channels.get_mut(channel) {
+            c.gain = gain.max(0_f32);
+        }
+    }
+
     /// midiss: number of channels (see `SynthesizerSettings::channel_count`).
     pub fn channel_count(&self) -> usize {
         self.channels.len()

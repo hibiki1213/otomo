@@ -320,16 +320,30 @@ pub fn songs_get(library: State<'_, SongLibrary>, id: i64) -> Result<SongRecord,
     get(&db, id)
 }
 
-/// Copy a MIDI file on disk into the library.
+/// Copy a MIDI file on disk into the library. A MusicXML score (.musicxml,
+/// .xml, .mxl) is converted to MIDI on the way in, so everything downstream
+/// only ever sees MIDI.
 #[tauri::command]
 pub async fn songs_import(library: State<'_, SongLibrary>, path: String) -> Result<SongRecord, String> {
     let p = PathBuf::from(&path);
-    if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("mid") || e.eq_ignore_ascii_case("midi")) {
-        return Err("MIDI ファイル（.mid / .midi）を選択してください。".into());
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let stem = p.file_stem().and_then(|n| n.to_str()).unwrap_or("song").to_owned();
+    match ext.as_str() {
+        "mid" | "midi" => {
+            let data = tokio::fs::read(&p).await.map_err(|e| e.to_string())?;
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("song.mid").to_owned();
+            library.import(&data, &name, Some(&path))
+        }
+        "musicxml" | "xml" | "mxl" => {
+            let data = tokio::fs::read(&p).await.map_err(|e| e.to_string())?;
+            if !midiss_score::is_musicxml(&data) {
+                return Err(format!("{stem}.{ext} は MusicXML の楽譜ではありません。"));
+            }
+            let smf = midiss_score::read_musicxml(&data)?.score.to_smf()?;
+            library.import(&smf, &format!("{stem}.mid"), Some(&path))
+        }
+        _ => Err("MIDI（.mid / .midi）か MusicXML（.musicxml / .xml / .mxl）のファイルを選択してください。".into()),
     }
-    let data = tokio::fs::read(&p).await.map_err(|e| e.to_string())?;
-    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("song.mid").to_owned();
-    library.import(&data, &name, Some(&path))
 }
 
 /// The stored MIDI bytes, as a raw body (no JSON encoding).

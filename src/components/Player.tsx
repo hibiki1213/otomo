@@ -243,6 +243,14 @@ export default function Player({
   const [position, setPosition] = useState(0);
   const [volume, setVolume] = useState(0.9);
   const [muted, setMuted] = useState<boolean[]>([]);
+  const [soloed, setSoloed] = useState<boolean[]>([]);
+  /** Per-track fader, in dB (FADER_MIN = off). */
+  const [gainsDb, setGainsDb] = useState<number[]>([]);
+  const mixSongRef = useRef<number | null>(null);
+  // What the engine was last told, so only changes are sent. Reset whenever
+  // a song is loaded, because loading resets the engine's tracks.
+  const sentMuted = useRef<boolean[]>([]);
+  const sentGain = useRef<number[]>([]);
   const [trackPrograms, setTrackPrograms] = useState<number[]>([]);
   const [loadingTracks, setLoadingTracks] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -282,11 +290,16 @@ export default function Player({
         const info = await engine.load(buffer, name);
         if (engineRef.current !== engine) return;
         setSong(info);
-        // A solo request mutes everything else rather than adding a second
-        // notion of "audible" the user would have to undo twice.
-        const silent = info.tracks.map((_, i) => !!solo && !solo.includes(i));
-        setMuted(silent);
-        silent.forEach((m, i) => m && engine.setTrackMuted(i, true));
+        // Loading gave the engine fresh, unmuted, full-level tracks.
+        sentMuted.current = info.tracks.map(() => false);
+        sentGain.current = info.tracks.map(() => 1);
+        mixSongRef.current = id;
+        setMuted(info.tracks.map(() => false));
+        // A solo request (MCP's "just the horns") is an ordinary solo, so
+        // the S buttons show it and one click undoes it.
+        setSoloed(info.tracks.map((_, i) => !!solo && solo.includes(i)));
+        const savedMix = loadMix(id);
+        setGainsDb(info.tracks.map((_, i) => savedMix[i] ?? 0));
         setTrackPrograms(info.tracks.map((t) => t.program));
         setLoadingTracks(new Set());
         setPosition(0);
@@ -399,10 +412,57 @@ export default function Player({
     setMuted((prev) => {
       const next = [...prev];
       next[index] = !next[index];
-      engineRef.current?.setTrackMuted(index, next[index]);
       return next;
     });
   }, []);
+
+  const toggleSolo = useCallback((index: number, exclusive: boolean) => {
+    setSoloed((prev) => {
+      // ⌥-click: this track alone, as in most DAWs.
+      if (exclusive) return prev.map((_, i) => i === index && !prev[index]);
+      const next = [...prev];
+      next[index] = !next[index];
+      return next;
+    });
+  }, []);
+
+  const setTrackGainDb = useCallback((index: number, db: number) => {
+    setGainsDb((prev) => {
+      const next = [...prev];
+      next[index] = db;
+      if (mixSongRef.current != null) saveMix(mixSongRef.current, next);
+      return next;
+    });
+  }, []);
+
+  // Audible = not muted, and soloed if anything is.
+  const silenced = useMemo(() => {
+    const anySolo = soloed.some(Boolean);
+    return muted.map((m, i) => m || (anySolo && !soloed[i]));
+  }, [muted, soloed]);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    silenced.forEach((m, i) => {
+      if (sentMuted.current[i] !== m) {
+        engine.setTrackMuted(i, m);
+        sentMuted.current[i] = m;
+      }
+    });
+  }, [silenced]);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    gainsDb.forEach((db, i) => {
+      const g = dbToGain(db);
+      if (sentGain.current[i] !== g) {
+        engine.setTrackGain(i, g);
+        sentGain.current[i] = g;
+      }
+    });
+  }, [gainsDb]);
 
   const onVolume = useCallback((v: number) => {
     setVolume(v);
@@ -461,13 +521,13 @@ export default function Player({
                 className="track-swatch"
                 style={{
                   background: track.color,
-                  opacity: muted[track.index] ? 0.3 : 1,
+                  opacity: silenced[track.index] ? 0.3 : 1,
                 }}
               />
               <div className="track-info">
                 <div
                   className="track-name"
-                  style={{ opacity: muted[track.index] ? 0.5 : 1 }}
+                  style={{ opacity: silenced[track.index] ? 0.5 : 1 }}
                 >
                   {track.name}
                 </div>
@@ -516,6 +576,19 @@ export default function Player({
                   </select>
                 )}
               </div>
+              <Fader
+                db={gainsDb[track.index] ?? 0}
+                onChange={(db) => setTrackGainDb(track.index, db)}
+                label={`${track.name} の音量`}
+              />
+              <button
+                className={`solo-btn${soloed[track.index] ? " on" : ""}`}
+                onClick={(e) => toggleSolo(track.index, e.altKey)}
+                aria-label={soloed[track.index] ? "ソロ解除" : "ソロ"}
+                title="ソロ（⌥クリックでこのトラックだけ）"
+              >
+                S
+              </button>
               <button
                 className={`mute-btn${muted[track.index] ? " muted" : ""}`}
                 onClick={() => toggleMute(track.index)}
@@ -532,7 +605,12 @@ export default function Player({
   }, [
     song,
     muted,
+    soloed,
+    silenced,
+    gainsDb,
     toggleMute,
+    toggleSolo,
+    setTrackGainDb,
     trackPrograms,
     loadingTracks,
     instrumentGroups,
@@ -619,7 +697,7 @@ export default function Player({
             song={song}
             position={position}
             isPlaying={isPlaying}
-            muted={muted}
+            muted={silenced}
             onSeek={seekTo}
             getLivePosition={getLivePosition}
           />
@@ -686,6 +764,81 @@ function DropZone({ onPick }: { onPick: () => void }) {
       <button className="btn-filled" onClick={onPick}>
         ファイルを選択
       </button>
+    </div>
+  );
+}
+
+/* ---------- track faders ---------- */
+
+/** Bottom of the fader: silence. */
+const FADER_MIN = -48;
+const FADER_MAX = 6;
+
+function dbToGain(db: number): number {
+  return db <= FADER_MIN ? 0 : Math.pow(10, db / 20);
+}
+
+function dbLabel(db: number): string {
+  if (db <= FADER_MIN) return "−∞";
+  if (Math.abs(db) < 0.05) return "0.0";
+  return `${db > 0 ? "+" : "−"}${Math.abs(db).toFixed(1)}`;
+}
+
+const MIX_KEY = (id: number) => `midiss.mix.${id}`;
+
+/** A song's fader positions, kept per song in this browser profile. */
+function loadMix(id: number): number[] {
+  try {
+    const raw = localStorage.getItem(MIX_KEY(id));
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map((v) => (typeof v === "number" ? v : 0)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMix(id: number, db: number[]) {
+  try {
+    if (db.every((v) => v === 0)) localStorage.removeItem(MIX_KEY(id));
+    else localStorage.setItem(MIX_KEY(id), JSON.stringify(db));
+  } catch {
+    /* only the memory of the mix is lost */
+  }
+}
+
+/**
+ * One track's level, in dB. Double-click puts it back to 0 dB; the bar
+ * fills from the left so levels can be compared down the list at a glance.
+ */
+function Fader({
+  db,
+  onChange,
+  label,
+}: {
+  db: number;
+  onChange: (db: number) => void;
+  label: string;
+}) {
+  const fill = ((db - FADER_MIN) / (FADER_MAX - FADER_MIN)) * 100;
+  const unity = ((0 - FADER_MIN) / (FADER_MAX - FADER_MIN)) * 100;
+  return (
+    <div className="fader" title="ダブルクリックで 0 dB に戻す">
+      <div className="fader-track">
+        <div className="fader-fill" style={{ width: `${fill}%` }} />
+        <div className="fader-unity" style={{ left: `${unity}%` }} />
+        <input
+          type="range"
+          min={FADER_MIN}
+          max={FADER_MAX}
+          step={0.5}
+          value={db}
+          aria-label={label}
+          aria-valuetext={`${dbLabel(db)} dB`}
+          onChange={(e) => onChange(Number(e.target.value))}
+          onDoubleClick={() => onChange(0)}
+        />
+      </div>
+      <span className={`fader-value${db === 0 ? "" : " moved"}`}>{dbLabel(db)}</span>
     </div>
   );
 }

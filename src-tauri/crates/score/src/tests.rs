@@ -343,6 +343,9 @@ fn key_names_read_both_ways() {
     }
     assert_eq!(KeyChange::parse("D").unwrap(), (2, false), "a bare tonic is major");
     assert_eq!(KeyChange::parse("bb minor").unwrap(), KeyChange::parse("Bb minor").unwrap());
+    assert_eq!(KeyChange::parse("B-flat major").unwrap(), (-2, false), "spelled out, as on the web");
+    assert_eq!(KeyChange::parse("F sharp minor").unwrap(), (3, true));
+    assert_eq!(KeyChange::parse("E-Flat").unwrap(), (-3, false));
     assert!(KeyChange::parse("H major").is_err());
     assert!(KeyChange::parse("C lydian").is_err());
 }

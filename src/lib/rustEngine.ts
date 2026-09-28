@@ -164,6 +164,10 @@ export class RustEngine implements PlaybackEngine {
     void invoke("engine_set_track_muted", { track: index, muted });
   }
 
+  setTrackGain(index: number, gain: number) {
+    void invoke("engine_set_track_gain", { track: index, gain });
+  }
+
   async setTrackProgram(trackIndex: number, program: number) {
     await invoke("engine_set_track_program", { track: trackIndex, program });
     for (const n of this.notes) {

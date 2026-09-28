@@ -5,20 +5,27 @@
 //! bars and beats — never ticks, never seconds — so that what the model says
 //! and what a musician says are the same thing.
 
-use midiss_score::{analyse_harmony, program_name, render_bars, suggest_grid, Grid, Score};
+use midiss_score::{analyse_harmony, program_name, read_musicxml, render_bars, suggest_grid, Grid, Score};
 use serde_json::{json, Value};
 
 use crate::control;
 use crate::edit_tools;
+use crate::fetch::{self, Fetched};
 use crate::library::{data_dir, Library, Song};
 use crate::pending;
-use crate::rpc::{need_i64, need_str, opt_i64, opt_str, Handler, Tool};
+use crate::picture;
+use crate::rpc::{need_i64, need_str, opt_i64, opt_str, Handler, Reply, Tool};
 
 /// Reading a whole symphony in one call would drown the conversation; this is
 /// roughly a page of music.
 const MAX_BARS: u32 = 64;
 const MAX_SONGS: i64 = 50;
 const MAX_TRACKS: usize = 40;
+/// Downloaded text comes back a page at a time: a MusicXML score runs to
+/// megabytes, an ABC tune to a few hundred characters.
+const PAGE_CHARS: usize = 30_000;
+/// Pages of a PDF score shown at once: each is a full-page picture.
+const MAX_PAGES: usize = 3;
 
 pub struct Server;
 
@@ -41,6 +48,28 @@ impl Handler for Server {
                     "properties": {
                         "query": { "type": "string", "description": "曲名の部分一致で絞り込む" }
                     }
+                }),
+            },
+            Tool {
+                name: "download",
+                description: "URL のファイルを取ってくる。国歌・クラシック・民謡・スタンダードなど既にある曲は、\
+                              記憶で書かずに、ウェブで楽譜や MIDI を探してここで取り込む。\n\
+                              ・MusicXML（.musicxml / .xml / .mxl）→ 楽譜の音符をそのまま曲にして取り込む。いちばん正確。\n\
+                              ・MIDI（.mid）→ ライブラリに新しい曲として取り込む。\n\
+                              どちらも取り込んだら get_song と同じ概要を返すので、read_bars で確かめてから編成やアレンジを直す。\n\
+                              ・PDF・画像（PNG / JPEG）の楽譜 → ページを画像で返す。読み取って create_song と write_score で書き起こす。\
+                              MusicXML や MIDI が見つからないときの手段。pages で読むページを選ぶ（一度に3ページまで）。\n\
+                              ・テキスト（ABC 記法、歌詞など）→ 中身を加工せずに返す。長いものは offset で続きを読む。\n\
+                              HTML のページは WebFetch で読む。SVG の楽譜は PNG に変換された版の URL を使う。",
+                schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "ファイルそのものの URL（http / https）" },
+                        "title": { "type": "string", "description": "取り込むときの曲名（省略すると楽譜の題名かファイル名）" },
+                        "pages": { "type": "string", "description": "PDF で読むページ。\"1-2\"（既定）、\"3\" など" },
+                        "offset": { "type": "integer", "description": "テキストの続きを読むときの開始文字位置" }
+                    },
+                    "required": ["url"]
                 }),
             },
             Tool {
@@ -125,7 +154,8 @@ impl Handler for Server {
             },
             Tool {
                 name: "list_playback_instruments",
-                description: "midiss に入っている音源（SFZ ライブラリ、AudioUnit プラグイン）の一覧。\
+                description: "midiss で使える音源（内蔵シンセ、SFZ ライブラリ、AudioUnit プラグイン）の一覧。\
+                              内蔵シンセには EDM 向けの音色（スーパーソウ、プラック、808、ワブルベース、EDM ドラムなど）がある。\
                               General MIDI の音色より良い音で鳴らしたいときに使う。起動中の midiss が要る。",
                 schema: json!({ "type": "object", "properties": {} }),
             },
@@ -153,94 +183,102 @@ impl Handler for Server {
         .collect()
     }
 
-    fn call(&mut self, name: &str, args: &Value) -> Result<String, String> {
-        let dir = data_dir()?;
+    fn call(&mut self, name: &str, args: &Value) -> Result<Reply, String> {
         match name {
-            "list_songs" => {
-                let library = Library::open(&dir)?;
-                Ok(list_songs(&library, opt_str(args, "query").as_deref())?)
-            }
-            "get_song" => {
-                let library = Library::open(&dir)?;
-                let (song, score) = load(&library, &dir, need_i64(args, "song_id")?)?;
-                Ok(describe(&song, &score) + &edit_tools::describe_staged(&dir, &song).unwrap_or_default())
-            }
-            "read_bars" => {
-                let library = Library::open(&dir)?;
-                let (song, score) = load(&library, &dir, need_i64(args, "song_id")?)?;
-                read(&song, &score, args)
-            }
-            "harmony" => {
-                let library = Library::open(&dir)?;
-                let (song, score) = load(&library, &dir, need_i64(args, "song_id")?)?;
-                harmony(&song, &score, args)
-            }
-            "play" => {
-                let library = Library::open(&dir)?;
-                let (song, score) = load(&library, &dir, need_i64(args, "song_id")?)?;
-                let bars = score.bars();
-                let bar = opt_i64(args, "from_bar").unwrap_or(1).max(1) as u32;
-                let seconds = score.tick_seconds(bars.bar_start(bar));
-                let until = opt_i64(args, "to_bar").map(|to| {
-                    let to = (to.max(bar as i64) as u32).min(bars.count);
-                    score.tick_seconds(bars.bar_start(to) + bars.bar_ticks(to))
-                });
-                let looping = args.get("loop").and_then(Value::as_bool).unwrap_or(false);
-                let solo = match args.get("tracks") {
-                    Some(_) => Some(wanted_tracks(&score, args)?),
-                    None => None,
-                };
-                let staged = pending::staged(&dir, song.id).is_some();
-                control::play(&dir, song.id, seconds, until, looping, solo.clone(), staged)?;
-                Ok(format!(
-                    "「{}」{}を{bar}小節目（{}）から{}{}再生しています。",
-                    song.title,
-                    if staged { "（未適用の編集を含む版）" } else { "" },
-                    clock(seconds),
-                    match (opt_i64(args, "to_bar"), looping) {
-                        (Some(to), true) => format!("{to}小節目まで繰り返して"),
-                        (Some(to), false) => format!("{to}小節目まで"),
-                        (None, _) => String::new(),
-                    },
-                    match &solo {
-                        Some(list) if !list.is_empty() => format!(
-                            "（{}のみ）",
-                            list.iter()
-                                .filter_map(|i| score.tracks.get(*i))
-                                .map(track_label)
-                                .collect::<Vec<_>>()
-                                .join("・")
-                        ),
-                        _ => String::new(),
-                    }
-                ))
-            }
-            "list_playback_instruments" => {
-                let list = control::instruments(&dir)?;
-                Ok(render_instruments(&list))
-            }
-            "set_playback_instrument" => {
-                let reply = control::set_playback(
-                    &dir,
-                    usize::try_from(need_i64(args, "track")?).map_err(|_| "track は 0 以上です")?,
-                    need_str(args, "instrument")?,
-                )?;
-                Ok(reply
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("音源を切り替えました。")
-                    .to_string())
-            }
-            "stop" => {
-                control::stop(&dir)?;
-                Ok("再生を止めました。".into())
-            }
-            other if edit_tools::is_edit(other) => {
-                let library = Library::open(&dir)?;
-                edit_tools::call(other, args, &library, &dir)
-            }
-            other => Err(format!("知らないツールです: {other}")),
+            "download" => download(&data_dir()?, args),
+            _ => answer(name, args).map(Reply::from),
         }
+    }
+}
+
+/// Every tool that answers in words alone.
+fn answer(name: &str, args: &Value) -> Result<String, String> {
+    let dir = data_dir()?;
+    match name {
+        "list_songs" => {
+            let library = Library::open(&dir)?;
+            Ok(list_songs(&library, opt_str(args, "query").as_deref())?)
+        }
+        "get_song" => {
+            let library = Library::open(&dir)?;
+            let (song, score) = load(&library, &dir, need_i64(args, "song_id")?)?;
+            Ok(describe(&song, &score) + &edit_tools::describe_staged(&dir, &song).unwrap_or_default())
+        }
+        "read_bars" => {
+            let library = Library::open(&dir)?;
+            let (song, score) = load(&library, &dir, need_i64(args, "song_id")?)?;
+            read(&song, &score, args)
+        }
+        "harmony" => {
+            let library = Library::open(&dir)?;
+            let (song, score) = load(&library, &dir, need_i64(args, "song_id")?)?;
+            harmony(&song, &score, args)
+        }
+        "play" => {
+            let library = Library::open(&dir)?;
+            let (song, score) = load(&library, &dir, need_i64(args, "song_id")?)?;
+            let bars = score.bars();
+            let bar = opt_i64(args, "from_bar").unwrap_or(1).max(1) as u32;
+            let seconds = score.tick_seconds(bars.bar_start(bar));
+            let until = opt_i64(args, "to_bar").map(|to| {
+                let to = (to.max(bar as i64) as u32).min(bars.count);
+                score.tick_seconds(bars.bar_start(to) + bars.bar_ticks(to))
+            });
+            let looping = args.get("loop").and_then(Value::as_bool).unwrap_or(false);
+            let solo = match args.get("tracks") {
+                Some(_) => Some(wanted_tracks(&score, args)?),
+                None => None,
+            };
+            let staged = pending::staged(&dir, song.id).is_some();
+            control::play(&dir, song.id, seconds, until, looping, solo.clone(), staged)?;
+            Ok(format!(
+                "「{}」{}を{bar}小節目（{}）から{}{}再生しています。",
+                song.title,
+                if staged { "（未適用の編集を含む版）" } else { "" },
+                clock(seconds),
+                match (opt_i64(args, "to_bar"), looping) {
+                    (Some(to), true) => format!("{to}小節目まで繰り返して"),
+                    (Some(to), false) => format!("{to}小節目まで"),
+                    (None, _) => String::new(),
+                },
+                match &solo {
+                    Some(list) if !list.is_empty() => format!(
+                        "（{}のみ）",
+                        list.iter()
+                            .filter_map(|i| score.tracks.get(*i))
+                            .map(track_label)
+                            .collect::<Vec<_>>()
+                            .join("・")
+                    ),
+                    _ => String::new(),
+                }
+            ))
+        }
+        "list_playback_instruments" => {
+            let list = control::instruments(&dir)?;
+            Ok(render_instruments(&list))
+        }
+        "set_playback_instrument" => {
+            let reply = control::set_playback(
+                &dir,
+                usize::try_from(need_i64(args, "track")?).map_err(|_| "track は 0 以上です")?,
+                need_str(args, "instrument")?,
+            )?;
+            Ok(reply
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("音源を切り替えました。")
+                .to_string())
+        }
+        "stop" => {
+            control::stop(&dir)?;
+            Ok("再生を止めました。".into())
+        }
+        other if edit_tools::is_edit(other) => {
+            let library = Library::open(&dir)?;
+            edit_tools::call(other, args, &library, &dir)
+        }
+        other => Err(format!("知らないツールです: {other}")),
     }
 }
 
@@ -250,6 +288,116 @@ fn load(library: &Library, dir: &std::path::Path, id: i64) -> Result<(Song, Scor
     let song = library.get(id)?;
     let score = pending::current(library, dir, &song)?;
     Ok((song, score))
+}
+
+/// A score file becomes a song; a PDF or a scan comes back as pictures to
+/// read; a text file is read back as it is.
+fn download(dir: &std::path::Path, args: &Value) -> Result<Reply, String> {
+    let url = need_str(args, "url")?;
+    let named = opt_str(args, "title").filter(|t| !t.trim().is_empty());
+    match fetch::get(url)? {
+        Fetched::Midi(bytes) => {
+            // Checked before it is stored, so a broken file never reaches the library.
+            let score = Score::parse(&bytes).map_err(|e| format!("MIDI として読めませんでした: {e}"))?;
+            let title = named.or_else(|| fetch::title_from(url)).unwrap_or_else(|| "ダウンロードした曲".into());
+            import(dir, &title, &bytes, &score, url, &[])
+        }
+        Fetched::MusicXml(bytes) => {
+            let read = read_musicxml(&bytes)?;
+            let smf = read.score.to_smf()?;
+            // Read back from the MIDI, so what is described is what was stored.
+            let score = Score::parse(&smf)?;
+            let title = named
+                .or(read.title)
+                .or_else(|| fetch::title_from(url))
+                .unwrap_or_else(|| "ダウンロードした曲".into());
+            import(dir, &title, &smf, &score, url, &read.remarks)
+        }
+        Fetched::Pdf(bytes) => {
+            let (first, last) = page_range(args)?;
+            let pages = picture::pdf_pages(&bytes, first, last)?;
+            let shown = pages.images.iter().map(|(n, _)| *n);
+            let (from, to) = (shown.clone().min().unwrap_or(first), shown.max().unwrap_or(first));
+            let mut text = format!(
+                "{url} — PDF の楽譜、全{}ページのうち {from}〜{to} ページ目です。\n\n{READ_BY_EYE}",
+                pages.count
+            );
+            if to < pages.count {
+                let next = (to + 1, (to + MAX_PAGES).min(pages.count));
+                text.push_str(&format!("\n続きは pages: \"{}-{}\" で読めます。", next.0, next.1));
+            }
+            Ok(Reply { text, images: pages.images.into_iter().map(|(_, png)| ("image/png", png)).collect() })
+        }
+        Fetched::Scan(bytes) => Ok(Reply {
+            text: format!("{url} — 楽譜の画像です。\n\n{READ_BY_EYE}"),
+            images: vec![("image/png", picture::scan(&bytes)?)],
+        }),
+        Fetched::Text(text) => Ok(text_page(url, &text, opt_i64(args, "offset").unwrap_or(0)).into()),
+        Fetched::Html => Err("HTML のページです。内容は WebFetch で読み、そこから楽譜ファイルそのもの\
+                              （.musicxml / .mxl / .mid / .pdf など）へのリンクを探して download に渡してください。"
+            .into()),
+        Fetched::Svg => Err("SVG の楽譜は読めません。PNG に変換された版の URL を使ってください\
+                             （Wikimedia Commons なら upload.wikimedia.org/…/thumb/…/1600px-….svg.png）。"
+            .into()),
+        Fetched::Other(kind) => Err(format!(
+            "{kind} のファイルは読めません。MusicXML・MIDI・PDF・PNG / JPEG の楽譜か、ABC 記法などのテキストを指定してください。"
+        )),
+    }
+}
+
+/// What to do with a score that arrives as pictures.
+const READ_BY_EYE: &str = "読み取って書き起こしてください。\n\
+    ・先に調号・拍子・テンポ・パート構成・弱起の有無を確かめる。\n\
+    ・create_song → add_tracks → write_score で、数小節ずつ書く。移調楽器の譜は実音に直す。\n\
+    ・読み取れない、自信のない箇所は推測で埋めず、返事でそう伝える。";
+
+fn import(
+    dir: &std::path::Path,
+    title: &str,
+    smf: &[u8],
+    score: &Score,
+    url: &str,
+    remarks: &[String],
+) -> Result<Reply, String> {
+    let song = Library::open(dir)?.create(title, smf)?;
+    let mut text = format!("「{}」として取り込みました（song_id {}、出典 {url}）。\n", song.title, song.id);
+    for remark in remarks {
+        text.push_str(&format!("※ {remark}\n"));
+    }
+    text.push('\n');
+    text.push_str(&describe(&song, score));
+    Ok(text.into())
+}
+
+/// "3" or "3-4"; the first two pages when not given, and never more than
+/// MAX_PAGES at once.
+fn page_range(args: &Value) -> Result<(usize, usize), String> {
+    let text = opt_str(args, "pages").unwrap_or_else(|| "1-2".into());
+    let (a, b) = text.split_once(['-', '–']).unwrap_or((&text, &text));
+    let bad = || format!("{text}: pages は \"1-2\" や \"3\" のように書きます");
+    let first: usize = a.trim().parse().map_err(|_| bad())?;
+    let last: usize = b.trim().parse().map_err(|_| bad())?;
+    if first == 0 || last < first {
+        return Err(bad());
+    }
+    Ok((first, last.min(first + MAX_PAGES - 1)))
+}
+
+fn text_page(url: &str, text: &str, offset: i64) -> String {
+    let total = text.chars().count();
+    let from = (offset.max(0) as usize).min(total);
+    let body: String = text.chars().skip(from).take(PAGE_CHARS).collect();
+    let to = from + body.chars().count();
+    let mut out = if from == 0 && to == total {
+        format!("{url}（{total}文字）\n\n")
+    } else {
+        format!("{url}（全{total}文字のうち {from}〜{to}）\n\n")
+    };
+    out.push_str(&body);
+    if to < total {
+        out.push_str(&format!("\n\n…続きがあります。offset: {to} で続きを読めます。"));
+    }
+    out
 }
 
 fn clock(seconds: f64) -> String {

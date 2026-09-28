@@ -48,6 +48,11 @@ pub struct Track {
     pub midi_channel: u8,
     pub program: u8,
     pub muted: bool,
+    /// Mixer level, linear (1 = as written). Set from the UI's fader.
+    pub gain: f32,
+    /// The level external instruments were last scaled by, so a fader move
+    /// ramps across one block instead of clicking.
+    applied_gain: f32,
     /// Current pan from CC10, -1 (left) … 1 (right).
     pub pan: f32,
     /// Sounding-note count per key, so mute/pause release exactly what this
@@ -57,7 +62,16 @@ pub struct Track {
 
 impl Track {
     pub fn new(midi_channel: u8, program: u8) -> Self {
-        Self { source: Source::Sf2, midi_channel, program, muted: false, pan: 0.0, active: [0; 128] }
+        Self {
+            source: Source::Sf2,
+            midi_channel,
+            program,
+            muted: false,
+            gain: 1.0,
+            applied_gain: 1.0,
+            pan: 0.0,
+            active: [0; 128],
+        }
     }
 
     fn is_percussion(&self) -> bool {
@@ -129,6 +143,7 @@ impl Player {
         for ch in 0..synth.channel_count() {
             let percussion = self.tracks.get(ch).is_some_and(|t| t.is_percussion());
             synth.set_percussion_channel(ch, percussion);
+            synth.set_channel_gain(ch, self.tracks.get(ch).map_or(1.0, |t| t.gain));
         }
     }
 
@@ -296,6 +311,17 @@ impl Player {
         }
     }
 
+    /// Set a track's mixer level (linear). The SoundFont applies it per voice;
+    /// other instruments are scaled after rendering.
+    pub fn set_gain(&mut self, t: usize, gain: f32) {
+        let Some(track) = self.tracks.get_mut(t) else { return };
+        let gain = if gain.is_finite() { gain.clamp(0.0, 4.0) } else { 1.0 };
+        track.gain = gain;
+        if let Some(synth) = self.synth.as_mut() {
+            synth.set_channel_gain(t, gain);
+        }
+    }
+
     pub fn set_program(&mut self, t: usize, program: u8) {
         let Some(track) = self.tracks.get_mut(t) else { return };
         if track.is_percussion() {
@@ -431,7 +457,17 @@ impl Player {
                 let [l, r] = &mut out.tracks[t];
                 if inst.render(&mut l[..block], &mut r[..block]) {
                     out.active[t] = true;
+                    let (from, to) = (track.applied_gain, track.gain);
+                    if (from - 1.0).abs() > f32::EPSILON || (to - 1.0).abs() > f32::EPSILON {
+                        let step = (to - from) / block as f32;
+                        for i in 0..block {
+                            let g = from + step * i as f32;
+                            l[i] *= g;
+                            r[i] *= g;
+                        }
+                    }
                 }
+                track.applied_gain = track.gain;
             }
         }
 

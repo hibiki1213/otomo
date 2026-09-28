@@ -10,7 +10,9 @@ export type InstrumentChoice =
       parts: { path: string; lo: number; hi: number }[];
       gainDb?: number;
     }
-  | { kind: "audioUnit"; id: string };
+  | { kind: "audioUnit"; id: string }
+  /** A preset of the built-in synthesizer. */
+  | { kind: "synth"; preset: string };
 
 export interface InstrumentEntry {
   id: string;
@@ -32,6 +34,8 @@ export function choiceKey(choice: InstrumentChoice): string {
       return `split:${choice.parts.map((p) => p.path).join("|")}`;
     case "audioUnit":
       return `au:${choice.id}`;
+    case "synth":
+      return `synth:${choice.preset}`;
   }
 }
 
@@ -77,6 +81,11 @@ export function listPlugins(): Promise<PluginInfo[]> {
 
 export function openPluginEditor(track: number, title: string): Promise<void> {
   return invoke("plugin_open_editor", { track, title });
+}
+
+/** The built-in synthesizer's presets, always available. */
+export function listSynthPresets(): Promise<InstrumentEntry[]> {
+  return invoke("synth_presets");
 }
 
 export function listLibraries(): Promise<LibraryStatus[]> {

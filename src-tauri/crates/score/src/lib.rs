@@ -12,6 +12,7 @@
 mod edit;
 mod gm;
 mod harmony;
+mod musicxml;
 mod parse_text;
 mod text;
 mod write;
@@ -19,6 +20,7 @@ mod write;
 pub use edit::Voice;
 pub use harmony::{analyse as analyse_harmony, Chord};
 pub use gm::{drum_key, drum_name, program_name, program_number, range as program_range};
+pub use musicxml::{is_musicxml, read_musicxml, MusicXml};
 pub use parse_text::parse_note_name;
 pub use text::{note_name, render_bars, suggest_grid, BarLine, Grid};
 
@@ -72,10 +74,12 @@ impl KeyChange {
         format!("{tonic} {}", if self.minor { "minor" } else { "major" })
     }
 
-    /// The other direction: "Bb minor", "D", "f# minor" → sharps and mode.
+    /// The other direction: "Bb minor", "D", "f# minor", "B-flat major" →
+    /// sharps and mode.
     pub fn parse(text: &str) -> Result<(i8, bool), String> {
         let text = text.trim();
-        let (tonic, minor) = match text.split_once(char::is_whitespace) {
+        let spelled = spelled_accidentals(text);
+        let (tonic, minor) = match spelled.split_once(char::is_whitespace) {
             Some((tonic, mode)) => {
                 let mode = mode.trim().to_lowercase();
                 let minor = match mode.as_str() {
@@ -86,7 +90,7 @@ impl KeyChange {
                 (tonic, minor)
             }
             // A bare tonic means major, as on a lead sheet.
-            None => (text, false),
+            None => (spelled.as_str(), false),
         };
         let tonic = normalise_tonic(tonic);
         let table = if minor { MINOR_KEYS } else { MAJOR_KEYS };
@@ -96,6 +100,19 @@ impl KeyChange {
             .map(|i| (i as i8 - 7, minor))
             .ok_or_else(|| format!("{text}: 調号にできない主音です"))
     }
+}
+
+/// "B-flat major", "F sharp minor" → "Bb major", "F# minor": the way sources
+/// on the web spell keys out.
+fn spelled_accidentals(text: &str) -> String {
+    let mut out = text.to_string();
+    for (word, sign) in [("-flat", "b"), (" flat", "b"), ("-sharp", "#"), (" sharp", "#")] {
+        // ASCII lowering keeps byte offsets, so the match can be cut from `out`.
+        if let Some(i) = out.to_ascii_lowercase().find(word) {
+            out.replace_range(i..i + word.len(), sign);
+        }
+    }
+    out
 }
 
 /// "bb" → "Bb", "f#" → "F#", accepting the ♯♭ signs too.

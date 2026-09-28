@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import ChatPanel from "@/components/ChatPanel";
 import PendingBar from "@/components/PendingBar";
 import Player from "@/components/Player";
 import Sidebar from "@/components/Sidebar";
@@ -13,6 +14,11 @@ export default function App() {
   // Bumped when MCP asks for silence; the player watches it.
   const [stopRequest, setStopRequest] = useState(0);
   const { importPaths, openFiles } = library;
+  const [chatOpen, setChatOpen] = useState(() => readPref("midiss.chat.open", "1") === "1");
+  const [chatWidth, setChatWidth] = useState(() => Number(readPref("midiss.chat.width", "360")) || 360);
+
+  useEffect(() => writePref("midiss.chat.open", chatOpen ? "1" : "0"), [chatOpen]);
+  useEffect(() => writePref("midiss.chat.width", String(chatWidth)), [chatWidth]);
 
   // Files dropped on the window arrive from the OS with real paths, so they
   // can be imported the same way the open panel's are.
@@ -87,6 +93,11 @@ export default function App() {
         e.preventDefault();
         void openFiles();
       }
+      // ⌘L, as in Cursor: show or hide Claude.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        setChatOpen((v) => !v);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -122,6 +133,15 @@ export default function App() {
           onOpenFiles={openFiles}
         />
       </main>
+      {libraryAvailable() && (
+        <ChatPanel
+          library={library}
+          open={chatOpen}
+          onToggle={() => setChatOpen((v) => !v)}
+          width={chatWidth}
+          onResize={setChatWidth}
+        />
+      )}
       {dropping && (
         <div className="drop-overlay">
           <p>MIDI ファイルを追加</p>
@@ -129,4 +149,21 @@ export default function App() {
       )}
     </div>
   );
+}
+
+/** Layout preferences; a blocked storage only costs remembering them. */
+function readPref(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writePref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
 }

@@ -47,6 +47,7 @@ libc = "0.2.189"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 sha2 = "0.10.9"
 midiss-score = { path = "crates/score" }
+midiss-synth = { path = "crates/synth" }
 
 # The synth runs on the realtime audio thread; unoptimized it can barely keep
 # up with dense arrangements, so optimize it (and the engine) even in dev.
@@ -54,6 +55,10 @@ midiss-score = { path = "crates/score" }
 opt-level = 3
 
 [profile.dev.package.realfft]
+opt-level = 3
+
+# Built-in synth voices run per sample on the audio thread, like rustysynth.
+[profile.dev.package.midiss-synth]
 opt-level = 3
 
 [target.'cfg(target_os = "macos")'.dependencies]

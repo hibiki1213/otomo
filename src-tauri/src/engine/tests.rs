@@ -289,6 +289,58 @@ fn muted_track_is_silent() {
 }
 
 #[test]
+fn fader_scales_soundfont_and_external_tracks() {
+    let Some((mut r, _t)) = renderer(SpatialConfig::default()) else { return };
+    let song = SongData {
+        duration: 1.0,
+        tracks: vec![TrackData { channel: 0, program: 0 }, TrackData { channel: 1, program: 0 }],
+        notes: vec![note(0, 60, 0.0, 0.9), note(1, 69, 0.0, 0.9)],
+        channel_events: vec![],
+    };
+    let level = |r: &mut Renderer, gains: [f32; 2]| {
+        r.handle(Command::LoadSong(Box::new(load_song(&song, SR))));
+        let log = Arc::new(Mutex::new(Vec::new()));
+        r.handle(Command::SetSource(1, Source::External(Box::new(TestInstrument { log, held: vec![] }))));
+        r.handle(Command::Gain(0, gains[0]));
+        r.handle(Command::Gain(1, gains[1]));
+        r.handle(Command::Play);
+        let mut buf = vec![0f32; 2048];
+        // Past the first block, where the external fader ramps in.
+        for _ in 0..4 {
+            r.render(&mut buf, 2);
+        }
+        let e = |r: &Renderer, t: usize| rms(&r.buffers.tracks[t][0][..BLOCK]);
+        (e(r, 0), e(r, 1))
+    };
+    let (sf_full, ext_full) = level(&mut r, [1.0, 1.0]);
+    let (sf_half, ext_half) = level(&mut r, [0.5, 0.5]);
+    let (sf_off, ext_off) = level(&mut r, [0.0, 0.0]);
+    assert!(sf_full > 0.0 && ext_full > 0.0);
+    assert!((sf_half / sf_full - 0.5).abs() < 0.05, "soundfont at half: {}", sf_half / sf_full);
+    assert!((ext_half / ext_full - 0.5).abs() < 0.01, "external at half: {}", ext_half / ext_full);
+    assert!(sf_off < 1e-6 && ext_off < 1e-6, "off is silent: {sf_off} {ext_off}");
+}
+
+#[test]
+fn builtin_synth_plays_on_a_track() {
+    let Some((mut r, _t)) = renderer(SpatialConfig::default()) else { return };
+    let song = SongData {
+        duration: 1.0,
+        tracks: vec![TrackData { channel: 0, program: 81 }, TrackData { channel: 9, program: 0 }],
+        notes: vec![note(0, 60, 0.0, 0.6), note(0, 64, 0.0, 0.6), note(1, 36, 0.0, 0.1), note(1, 42, 0.25, 0.3)],
+        channel_events: vec![],
+    };
+    r.handle(Command::LoadSong(Box::new(load_song(&song, SR))));
+    for (t, preset) in [(0, "supersaw-lead"), (1, "edm-drums")] {
+        let inst = crate::instruments::synth::SynthInstrument::load(preset, SR).expect("preset");
+        r.handle(Command::SetSource(t, Source::External(Box::new(inst))));
+    }
+    let out = play_loaded(&mut r, 0.5);
+    assert!(out[0].iter().chain(&out[1]).all(|v| v.is_finite()));
+    assert!(rms(&out[0]) > 0.01 && rms(&out[1]) > 0.01, "left {} right {}", rms(&out[0]), rms(&out[1]));
+}
+
+#[test]
 fn seek_lines_up_cursor_and_position() {
     let Some((mut r, _t)) = renderer(SpatialConfig::default()) else { return };
     r.handle(Command::LoadSong(Box::new(load_song(&test_song(), SR))));

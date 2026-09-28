@@ -251,7 +251,7 @@ impl Voice {
 
         // According to the GM spec, the following value should be squared.
         let ve = channel_info.get_volume() * channel_info.get_expression();
-        let channel_gain = ve * ve;
+        let channel_gain = ve * ve * channel_info.gain;
 
         let mut mix_gain = self.note_gain * channel_gain * self.vol_env.get_value();
         if self.dynamic_volume {

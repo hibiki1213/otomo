@@ -49,7 +49,7 @@ fn config_path() -> Result<PathBuf, String> {
 /// Installed, it sits beside the app's own executable. In development the
 /// release build of it does too, one profile over — which is where
 /// `pnpm mcp:build` puts it.
-fn server_path() -> Option<PathBuf> {
+pub(crate) fn server_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
     let beside = dir.join(SERVER_BIN);
