@@ -39,7 +39,7 @@ pub fn get(url: &str) -> Result<Fetched, String> {
     public(&url)?;
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
-        .user_agent(concat!("midiss/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("otomo/", env!("CARGO_PKG_VERSION")))
         // Every hop is checked, or a public page could redirect inward.
         .redirect(Policy::custom(|attempt| {
             if attempt.previous().len() >= MAX_REDIRECTS {
@@ -86,7 +86,7 @@ fn classify(bytes: Vec<u8>, content_type: &str) -> Fetched {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") || bytes.starts_with(b"\xFF\xD8\xFF") {
         return Fetched::Scan(bytes);
     }
-    if midiss_score::is_musicxml(&bytes) {
+    if otomo_score::is_musicxml(&bytes) {
         return Fetched::MusicXml(bytes);
     }
     let head = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]).to_ascii_lowercase();

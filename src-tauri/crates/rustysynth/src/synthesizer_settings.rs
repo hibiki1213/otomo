@@ -14,7 +14,7 @@ pub struct SynthesizerSettings {
     pub maximum_polyphony: usize,
     /// The value indicating whether reverb and chorus are enabled.
     pub enable_reverb_and_chorus: bool,
-    /// midiss: number of MIDI channels (16 by default). Hosts that give each
+    /// otomo: number of MIDI channels (16 by default). Hosts that give each
     /// track its own channel raise this; set percussion channels with
     /// `Synthesizer::set_percussion_channel`.
     pub channel_count: usize,

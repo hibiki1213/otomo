@@ -42,7 +42,7 @@ pub struct Synthesizer {
 
     effects: Option<Effects>,
 
-    // midiss: split-output rendering (see `render_block_split`).
+    // otomo: split-output rendering (see `render_block_split`).
     reverb_enabled: bool,
     channel_left: Vec<Vec<f32>>,
     channel_right: Vec<Vec<f32>>,
@@ -374,7 +374,7 @@ impl Synthesizer {
         }
     }
 
-    /// midiss: renders exactly one block (`get_block_size()` frames) and keeps
+    /// otomo: renders exactly one block (`get_block_size()` frames) and keeps
     /// the parts separate. Read them back with [`Self::split_mix`],
     /// [`Self::split_channel`] and [`Self::split_effects`]:
     ///
@@ -415,7 +415,7 @@ impl Synthesizer {
             .map_or(0_f32, |c| (c.get_pan() / 50_f32).clamp(-1_f32, 1_f32))
     }
 
-    /// midiss: mixer level of a channel (linear, 1 = as the file says).
+    /// otomo: mixer level of a channel (linear, 1 = as the file says).
     /// Applied per voice, so sounding notes follow it without a click and
     /// the chorus and reverb sends move with it.
     pub fn set_channel_gain(&mut self, channel: usize, gain: f32) {
@@ -424,12 +424,12 @@ impl Synthesizer {
         }
     }
 
-    /// midiss: number of channels (see `SynthesizerSettings::channel_count`).
+    /// otomo: number of channels (see `SynthesizerSettings::channel_count`).
     pub fn channel_count(&self) -> usize {
         self.channels.len()
     }
 
-    /// midiss: mark a channel as percussion (drum banks, bank 128) or not.
+    /// otomo: mark a channel as percussion (drum banks, bank 128) or not.
     /// Resets that channel's bank selection.
     pub fn set_percussion_channel(&mut self, channel: usize, percussion: bool) {
         if let Some(c) = self.channels.get_mut(channel) {

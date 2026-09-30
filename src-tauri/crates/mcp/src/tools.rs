@@ -5,7 +5,7 @@
 //! bars and beats — never ticks, never seconds — so that what the model says
 //! and what a musician says are the same thing.
 
-use midiss_score::{analyse_harmony, program_name, read_musicxml, render_bars, suggest_grid, Grid, Score};
+use otomo_score::{analyse_harmony, program_name, read_musicxml, render_bars, suggest_grid, Grid, Score};
 use serde_json::{json, Value};
 
 use crate::control;
@@ -31,7 +31,7 @@ pub struct Server;
 
 impl Handler for Server {
     fn server_name(&self) -> &'static str {
-        "midiss"
+        "otomo"
     }
 
     fn server_version(&self) -> &'static str {
@@ -42,7 +42,7 @@ impl Handler for Server {
         vec![
             Tool {
                 name: "list_songs",
-                description: "midiss のライブラリにある曲の一覧。song_id はほかのツールで使う。",
+                description: "Otomo のライブラリにある曲の一覧。song_id はほかのツールで使う。",
                 schema: json!({
                     "type": "object",
                     "properties": {
@@ -133,7 +133,7 @@ impl Handler for Server {
             },
             Tool {
                 name: "play",
-                description: "起動中の midiss でこの曲を鳴らす。音を確かめてもらうために使う。\
+                description: "起動中の Otomo でこの曲を鳴らす。音を確かめてもらうために使う。\
                               to_bar で範囲を区切り、loop で繰り返せる（直して聴き直す作業向け）。\
                               tracks を指定するとそのパートだけが鳴る（ソロ）。",
                 schema: json!({
@@ -154,9 +154,9 @@ impl Handler for Server {
             },
             Tool {
                 name: "list_playback_instruments",
-                description: "midiss で使える音源（内蔵シンセ、SFZ ライブラリ、AudioUnit プラグイン）の一覧。\
+                description: "Otomo で使える音源（内蔵シンセ、SFZ ライブラリ、AudioUnit プラグイン）の一覧。\
                               内蔵シンセには EDM 向けの音色（スーパーソウ、プラック、808、ワブルベース、EDM ドラムなど）がある。\
-                              General MIDI の音色より良い音で鳴らしたいときに使う。起動中の midiss が要る。",
+                              General MIDI の音色より良い音で鳴らしたいときに使う。起動中の Otomo が要る。",
                 schema: json!({ "type": "object", "properties": {} }),
             },
             Tool {
@@ -409,7 +409,7 @@ fn list_songs(library: &Library, query: Option<&str>) -> Result<String, String> 
     if songs.is_empty() {
         return Ok(match query {
             Some(q) => format!("「{q}」に一致する曲はありません。"),
-            None => "ライブラリはまだ空です。midiss で MIDI を開くと追加されます。".into(),
+            None => "ライブラリはまだ空です。Otomo で MIDI を開くと追加されます。".into(),
         });
     }
     let mut out = String::from("song_id  長さ   トラック  曲名\n");
@@ -481,7 +481,7 @@ fn describe(song: &Song, score: &Score) -> String {
                 program_name(track.program).to_string()
             },
             track.notes.len(),
-            format!("{}–{}", midiss_score::note_name(lo_key), midiss_score::note_name(hi_key)),
+            format!("{}–{}", otomo_score::note_name(lo_key), otomo_score::note_name(hi_key)),
             format!("{first}–{last}"),
             track.name,
         ));
@@ -535,7 +535,7 @@ fn harmony(song: &Song, score: &Score, args: &Value) -> Result<String, String> {
 fn render_instruments(reply: &Value) -> String {
     let items = reply.get("instruments").and_then(Value::as_array);
     let Some(items) = items.filter(|i| !i.is_empty()) else {
-        return "midiss に追加の音源は入っていません（General MIDI の内蔵音色のみ）。".into();
+        return "Otomo に追加の音源は入っていません（General MIDI の内蔵音色のみ）。".into();
     };
     let mut out = String::from("id                              種類        名前\n");
     for item in items {
@@ -566,7 +566,7 @@ fn wanted_tracks(score: &Score, args: &Value) -> Result<Vec<usize>, String> {
     }
 }
 
-fn signature_summary(score: &Score, bars: &midiss_score::BarMap) -> String {
+fn signature_summary(score: &Score, bars: &otomo_score::BarMap) -> String {
     let mut parts: Vec<String> = Vec::new();
     for span in &bars.spans {
         let label = format!("{}/{}", span.numerator, span.denominator);
@@ -628,7 +628,7 @@ fn read(song: &Song, score: &Score, args: &Value) -> Result<String, String> {
     Ok(out)
 }
 
-fn track_label(track: &midiss_score::Track) -> String {
+fn track_label(track: &otomo_score::Track) -> String {
     let instrument =
         if track.is_percussion() { "パーカッション" } else { program_name(track.program) };
     if track.name.is_empty() {

@@ -784,7 +784,7 @@ function dbLabel(db: number): string {
   return `${db > 0 ? "+" : "−"}${Math.abs(db).toFixed(1)}`;
 }
 
-const MIX_KEY = (id: number) => `midiss.mix.${id}`;
+const MIX_KEY = (id: number) => `otomo.mix.${id}`;
 
 /** A song's fader positions, kept per song in this browser profile. */
 function loadMix(id: number): number[] {

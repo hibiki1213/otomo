@@ -1,7 +1,9 @@
 [package]
-name = "midiss-score"
+name = "otomo-score"
 version = "0.1.0"
 edition = "2021"
+authors = ["Hibiki Kawabe"]
+license = "MIT"
 description = "Bars, beats and note names for a Standard MIDI File"
 
 [dependencies]

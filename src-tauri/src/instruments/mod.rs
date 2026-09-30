@@ -28,7 +28,7 @@ pub enum InstrumentChoice {
     },
     /// An AudioUnit instrument, by `audio_unit::PluginInfo::id`.
     AudioUnit { id: String },
-    /// A preset of the built-in synthesizer (`midiss_synth::PRESETS`).
+    /// A preset of the built-in synthesizer (`otomo_synth::PRESETS`).
     Synth { preset: String },
 }
 

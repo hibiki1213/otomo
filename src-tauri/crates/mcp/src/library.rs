@@ -26,14 +26,14 @@ pub struct Library {
     root: PathBuf,
 }
 
-/// Where the app keeps its data. `MIDISS_DATA_DIR` overrides it, which is what
+/// Where the app keeps its data. `OTOMO_DATA_DIR` overrides it, which is what
 /// the tests use and what a second install would set.
 pub fn data_dir() -> Result<PathBuf, String> {
-    if let Ok(dir) = std::env::var("MIDISS_DATA_DIR") {
+    if let Ok(dir) = std::env::var("OTOMO_DATA_DIR") {
         return Ok(PathBuf::from(dir));
     }
     let home = std::env::var("HOME").map_err(|_| "HOME が設定されていません".to_string())?;
-    Ok(PathBuf::from(home).join("Library/Application Support/com.midiss.app"))
+    Ok(PathBuf::from(home).join("Library/Application Support/io.github.hibiki1213.otomo"))
 }
 
 impl Library {
@@ -41,7 +41,7 @@ impl Library {
         let path = dir.join("library.db");
         if !path.exists() {
             return Err(format!(
-                "ライブラリがまだありません（{}）。midiss で一度 MIDI を開いてください。",
+                "ライブラリがまだありません（{}）。Otomo で一度 MIDI を開いてください。",
                 path.display()
             ));
         }

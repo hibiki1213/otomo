@@ -2334,74 +2334,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "midiss"
-version = "0.1.0"
-dependencies = [
- "block2",
- "cmake",
- "cpal",
- "flate2",
- "futures-util",
- "libc",
- "log",
- "lzma-rs",
- "midiss-score",
- "midiss-synth",
- "objc2",
- "objc2-app-kit",
- "objc2-audio-toolbox",
- "objc2-avf-audio",
- "objc2-core-audio-kit",
- "objc2-core-audio-types",
- "objc2-core-foundation",
- "objc2-foundation",
- "realfft",
- "reqwest",
- "rtrb",
- "rusqlite",
- "rustysynth",
- "serde",
- "serde_json",
- "sha2",
- "tar",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-opener",
- "tokio",
- "zip",
-]
-
-[[package]]
-name = "midiss-mcp"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "midiss-score",
- "objc2-core-foundation",
- "objc2-core-graphics",
- "png 0.18.1",
- "reqwest",
- "rusqlite",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "midiss-score"
-version = "0.1.0"
-dependencies = [
- "midly",
- "roxmltree",
- "zip",
-]
-
-[[package]]
-name = "midiss-synth"
-version = "0.1.0"
-
-[[package]]
 name = "midly"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2971,6 +2903,74 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
 ]
+
+[[package]]
+name = "otomo"
+version = "0.1.0"
+dependencies = [
+ "block2",
+ "cmake",
+ "cpal",
+ "flate2",
+ "futures-util",
+ "libc",
+ "log",
+ "lzma-rs",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-audio-toolbox",
+ "objc2-avf-audio",
+ "objc2-core-audio-kit",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "otomo-score",
+ "otomo-synth",
+ "realfft",
+ "reqwest",
+ "rtrb",
+ "rusqlite",
+ "rustysynth",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-opener",
+ "tokio",
+ "zip",
+]
+
+[[package]]
+name = "otomo-mcp"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "otomo-score",
+ "png 0.18.1",
+ "reqwest",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "otomo-score"
+version = "0.1.0"
+dependencies = [
+ "midly",
+ "roxmltree",
+ "zip",
+]
+
+[[package]]
+name = "otomo-synth"
+version = "0.1.0"
 
 [[package]]
 name = "pango"

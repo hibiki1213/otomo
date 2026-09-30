@@ -17,7 +17,7 @@ pub use catalog::{Archive, CatalogInstrument, CatalogLibrary, CATALOG};
 
 use crate::instruments::{InstrumentChoice, SfzPart};
 
-const INSTALLED_MARKER: &str = ".midiss-installed";
+const INSTALLED_MARKER: &str = ".otomo-installed";
 
 /// Installs in progress (one at a time per library).
 #[derive(Default)]
@@ -93,10 +93,10 @@ fn entry_for(lib: &CatalogLibrary, inst: &CatalogInstrument, dir: &Path) -> Opti
 /// The built-in synthesizer's presets, listed like an installed library's
 /// instruments (always there: nothing to download).
 pub fn builtin_instruments() -> Vec<InstrumentEntry> {
-    midiss_synth::PRESETS.iter().map(synth_entry).collect()
+    otomo_synth::PRESETS.iter().map(synth_entry).collect()
 }
 
-fn synth_entry(p: &midiss_synth::Preset) -> InstrumentEntry {
+fn synth_entry(p: &otomo_synth::Preset) -> InstrumentEntry {
     InstrumentEntry {
         id: format!("synth:{}", p.id),
         name: p.name.to_string(),
@@ -329,7 +329,7 @@ pub fn library_suggest(app: AppHandle, tracks: Vec<TrackProgram>) -> Result<Vec<
             })
             // GM's synth programs sound thin on a SoundFont; the built-in
             // synth plays them when no downloaded library does.
-            .or_else(|| (!t.percussion).then(|| midiss_synth::for_program(t.program).map(synth_entry)).flatten())
+            .or_else(|| (!t.percussion).then(|| otomo_synth::for_program(t.program).map(synth_entry)).flatten())
         })
         .collect())
 }
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn extracts_tar_gz_and_picks_single_root() {
-        let tmp = std::env::temp_dir().join(format!("midiss-lib-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("otomo-lib-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let archive = tmp.join("lib.tar.gz");
@@ -389,7 +389,7 @@ mod tests {
 mod network_tests {
     //! Downloads real catalog entries (small ones only). Run explicitly:
     //! `cargo test --release -- --ignored catalog_downloads`
-    //! Set `MIDISS_LIB_CACHE` to reuse downloaded archives between runs.
+    //! Set `OTOMO_LIB_CACHE` to reuse downloaded archives between runs.
 
     use super::*;
     use crate::engine::player::Instrument;
@@ -398,9 +398,9 @@ mod network_tests {
     #[test]
     #[ignore]
     fn catalog_downloads_install_and_play() {
-        let cache = std::env::var("MIDISS_LIB_CACHE")
+        let cache = std::env::var("OTOMO_LIB_CACHE")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| std::env::temp_dir().join("midiss-lib-cache"));
+            .unwrap_or_else(|_| std::env::temp_dir().join("otomo-lib-cache"));
         std::fs::create_dir_all(&cache).unwrap();
         let ids = [
             "freepats-gm-drums",
@@ -458,7 +458,7 @@ mod network_tests {
 #[cfg(test)]
 mod calibration {
     //! Prints `gain_db` values that match each installed catalog instrument
-    //! to the SoundFont patch it replaces. Needs `MIDISS_SF2`.
+    //! to the SoundFont patch it replaces. Needs `OTOMO_SF2`.
     //! `cargo test --release -- --ignored calibrate_catalog --nocapture`
 
     use super::*;
@@ -524,10 +524,10 @@ mod calibration {
     #[test]
     #[ignore]
     fn calibrate_catalog() {
-        let Ok(sf2) = std::env::var("MIDISS_SF2") else { return };
+        let Ok(sf2) = std::env::var("OTOMO_SF2") else { return };
         let sf = Arc::new(SoundFont::new(&mut BufReader::new(File::open(sf2).unwrap())).unwrap());
         let base = PathBuf::from(std::env::var("HOME").unwrap())
-            .join("Library/Application Support/com.midiss.app/libraries");
+            .join("Library/Application Support/io.github.hibiki1213.otomo/libraries");
         for lib in CATALOG {
             let dir = base.join(lib.id);
             if !is_installed(&dir) {
@@ -575,7 +575,7 @@ pub fn installed(app: &AppHandle) -> Vec<serde_json::Value> {
             }));
         }
     }
-    for p in midiss_synth::PRESETS {
+    for p in otomo_synth::PRESETS {
         out.push(serde_json::json!({
             "id": format!("synth:{}", p.id),
             "kind": "synth",
@@ -618,7 +618,7 @@ pub fn use_instrument(app: &AppHandle, track: usize, id: &str) -> Result<String,
 
 fn find_instrument(app: &AppHandle, id: &str) -> Option<InstrumentEntry> {
     let preset = id.strip_prefix("synth:").unwrap_or(id);
-    if let Some(p) = midiss_synth::PRESETS.iter().find(|p| p.id == preset) {
+    if let Some(p) = otomo_synth::PRESETS.iter().find(|p| p.id == preset) {
         return Some(synth_entry(p));
     }
     for lib in CATALOG.iter() {

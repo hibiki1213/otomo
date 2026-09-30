@@ -1,7 +1,9 @@
 {
-  "name": "midiss",
+  "name": "otomo",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
+  "author": "Hibiki Kawabe",
   "type": "module",
   "scripts": {
     "dev": "vite",

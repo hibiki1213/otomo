@@ -1,4 +1,4 @@
-//! midiss's own synthesizer: the EDM sounds a General MIDI SoundFont does
+//! Otomo's own synthesizer: the EDM sounds a General MIDI SoundFont does
 //! badly — supersaws, plucks, reese and wobble basses, 808s, acid lines — and
 //! a drum machine, all computed rather than sampled, so nothing is
 //! downloaded and every preset is available the moment the app starts.

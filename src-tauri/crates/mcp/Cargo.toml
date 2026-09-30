@@ -1,15 +1,17 @@
 [package]
-name = "midiss-mcp"
+name = "otomo-mcp"
 version = "0.1.0"
 edition = "2021"
-description = "MCP server exposing the midiss song library to Claude"
+authors = ["Hibiki Kawabe"]
+license = "MIT"
+description = "MCP server exposing the Otomo song library to Claude"
 
 [[bin]]
-name = "midiss-mcp"
+name = "otomo-mcp"
 path = "src/main.rs"
 
 [dependencies]
-midiss-score = { path = "../score" }
+otomo-score = { path = "../score" }
 reqwest = { version = "0.13.3", default-features = false, features = ["native-tls", "blocking"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde_json = "1.0"

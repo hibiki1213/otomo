@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "midiss",
+  "productName": "Otomo",
   "version": "0.1.0",
-  "identifier": "com.midiss.app",
+  "identifier": "io.github.hibiki1213.otomo",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "midiss",
+        "title": "Otomo",
         "width": 1280,
         "height": 840,
         "minWidth": 880,
@@ -49,12 +49,14 @@
       "icons/icon.ico"
     ],
     "category": "Music",
+    "copyright": "Copyright © 2026 Hibiki Kawabe",
+    "license": "MIT",
     "shortDescription": "MIDI player",
     "macOS": {
       "minimumSystemVersion": "11.0"
     },
     "externalBin": [
-      "binaries/midiss-mcp"
+      "binaries/otomo-mcp"
     ]
   }
 }

@@ -336,10 +336,10 @@ pub async fn songs_import(library: State<'_, SongLibrary>, path: String) -> Resu
         }
         "musicxml" | "xml" | "mxl" => {
             let data = tokio::fs::read(&p).await.map_err(|e| e.to_string())?;
-            if !midiss_score::is_musicxml(&data) {
+            if !otomo_score::is_musicxml(&data) {
                 return Err(format!("{stem}.{ext} は MusicXML の楽譜ではありません。"));
             }
-            let smf = midiss_score::read_musicxml(&data)?.score.to_smf()?;
+            let smf = otomo_score::read_musicxml(&data)?.score.to_smf()?;
             library.import(&smf, &format!("{stem}.mid"), Some(&path))
         }
         _ => Err("MIDI（.mid / .midi）か MusicXML（.musicxml / .xml / .mxl）のファイルを選択してください。".into()),
@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn imports_deduplicates_and_survives_the_original() {
-        let dir = std::env::temp_dir().join(format!("midiss-songs-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("otomo-songs-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let lib = library(&dir);
 

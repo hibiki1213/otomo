@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use midiss_score::Score;
+use otomo_score::Score;
 use serde_json::{json, Value};
 
 use crate::library::{Library, Song};
@@ -86,7 +86,7 @@ pub fn stage(data_dir: &Path, song: &Song, score: &Score, change: &str) -> Resul
     std::fs::write(note_path(data_dir, song.id), note.to_string()).map_err(|e| e.to_string())?;
 
     Ok(format!(
-        "{change}\n（未適用。midiss で「適用」を押すと確定します。play で試聴できます）"
+        "{change}\n（未適用。Otomo で「適用」を押すと確定します。play で試聴できます）"
     ))
 }
 

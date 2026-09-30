@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn plays_and_releases_a_note() {
-        let dir = std::env::temp_dir().join(format!("midiss-sfz-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("otomo-sfz-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut inst = SfzInstrument::load(&sine_instrument(&dir), 48_000).expect("load");
         let (mut l, mut r) = (vec![0f32; 1024], vec![0f32; 1024]);
@@ -326,7 +326,7 @@ mod tests {
     /// threads collide in sfizz's global shape map.
     #[test]
     fn concurrent_loads_do_not_corrupt_the_heap() {
-        let dir = std::env::temp_dir().join(format!("midiss-sfz-par-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("otomo-sfz-par-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         sine_instrument(&dir);
         let files: Vec<_> = (0..8)
@@ -378,7 +378,7 @@ mod bench {
 
     fn lib(rel: &str) -> PathBuf {
         PathBuf::from(std::env::var("HOME").unwrap())
-            .join("Library/Application Support/com.midiss.app/libraries")
+            .join("Library/Application Support/io.github.hibiki1213.otomo/libraries")
             .join(rel)
     }
 

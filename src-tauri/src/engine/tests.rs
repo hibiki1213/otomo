@@ -1,9 +1,9 @@
-//! Offline checks against a real SoundFont. Set `MIDISS_SF2` to a .sf2
-//! path to run them (skipped otherwise); `MIDISS_WAV_DIR` also writes the
+//! Offline checks against a real SoundFont. Set `OTOMO_SF2` to a .sf2
+//! path to run them (skipped otherwise); `OTOMO_WAV_DIR` also writes the
 //! rendered test song per room/output to WAVs for listening.
 
-//! Offline checks against a real SoundFont. Set `MIDISS_SF2` to a .sf2
-//! path to run them (skipped otherwise); `MIDISS_WAV_DIR` also writes the
+//! Offline checks against a real SoundFont. Set `OTOMO_SF2` to a .sf2
+//! path to run them (skipped otherwise); `OTOMO_WAV_DIR` also writes the
 //! rendered test song per room/output to WAVs for listening.
 
 use super::player::Instrument;
@@ -18,7 +18,7 @@ fn hrtf() -> Arc<Hrtf> {
 }
 
 fn renderer(config: SpatialConfig) -> Option<(Renderer, Receiver<Box<dyn Any + Send>>)> {
-    let path = std::env::var("MIDISS_SF2").ok()?;
+    let path = std::env::var("OTOMO_SF2").ok()?;
     let mut reader = BufReader::new(File::open(path).expect("open sf2"));
     let sf = Arc::new(SoundFont::new(&mut reader).expect("parse sf2"));
     let synth = new_synth(&sf, SR).expect("synth");
@@ -173,7 +173,7 @@ fn events_sorted_with_release_before_attack() {
 #[test]
 fn split_mix_matches_plain_render() {
     // The per-channel split must not change what "original" sounds like.
-    let Ok(path) = std::env::var("MIDISS_SF2") else { return };
+    let Ok(path) = std::env::var("OTOMO_SF2") else { return };
     let sf = Arc::new(SoundFont::new(&mut BufReader::new(File::open(path).unwrap())).unwrap());
     let settings = SynthesizerSettings::new(SR as i32);
     let mut a = Synthesizer::new(&sf, &settings).unwrap();
@@ -205,13 +205,13 @@ fn split_mix_matches_plain_render() {
 
 #[test]
 fn plays_to_end_in_every_room_and_output() {
-    let wav_dir = std::env::var("MIDISS_WAV_DIR").ok();
+    let wav_dir = std::env::var("OTOMO_WAV_DIR").ok();
     let mut rooms = vec!["original".to_string(), "dry".to_string()];
     rooms.extend(room::VENUES.iter().map(|v| v.id.to_string()));
     for room_id in &rooms {
         for output in [OutputMode::Speakers, OutputMode::Headphones] {
             let Some((mut r, _trash)) = renderer(config(room_id, 1, output)) else {
-                eprintln!("MIDISS_SF2 not set; skipping");
+                eprintln!("OTOMO_SF2 not set; skipping");
                 return;
             };
             let out = render_song(&mut r, &test_song(), 3.0);
@@ -519,7 +519,7 @@ fn compacted_seek_restores_controller_state() {
 fn print_soundfont_note_energy() {
     // Reference level for comparing SFZ libraries (same measurement as
     // library::network_tests): one C4 at velocity 110, 20 blocks of 1024.
-    let Ok(path) = std::env::var("MIDISS_SF2") else { return };
+    let Ok(path) = std::env::var("OTOMO_SF2") else { return };
     let sf = Arc::new(SoundFont::new(&mut BufReader::new(File::open(path).unwrap())).unwrap());
     let mut s = new_synth(&sf, SR).unwrap();
     for (program, key, ch) in [(0u8, 60, 0), (33, 60, 1), (66, 60, 2), (16, 60, 3), (25, 60, 4), (0, 38, 9)] {
@@ -540,7 +540,7 @@ fn print_soundfont_note_energy() {
 #[ignore]
 fn print_soundfont_reference_levels() {
     // Same measurement as instruments::sfz::bench (40 blocks).
-    let Ok(path) = std::env::var("MIDISS_SF2") else { return };
+    let Ok(path) = std::env::var("OTOMO_SF2") else { return };
     let sf = Arc::new(SoundFont::new(&mut BufReader::new(File::open(path).unwrap())).unwrap());
     let mut s = new_synth(&sf, SR).unwrap();
     let cases: [(&str, u8, &[i32], i32); 7] = [
@@ -570,7 +570,7 @@ fn print_soundfont_reference_levels() {
     }
 }
 
-/// test.mid-like load with the installed VSCO library: 50 tracks, 20 of them
+/// A dense orchestral load with the installed VSCO library: 50 tracks, 20 of them
 /// string sections (4 sfizz each), the rest single VSCO instruments.
 /// `cargo test [--release] -- --ignored orchestra_load --nocapture`
 #[test]
@@ -578,7 +578,7 @@ fn print_soundfont_reference_levels() {
 fn orchestra_load() {
     use crate::instruments::sfz::{SfzInstrument, SfzSplit};
     let vsco = std::path::PathBuf::from(std::env::var("HOME").unwrap())
-        .join("Library/Application Support/com.midiss.app/libraries/vsco2-ce");
+        .join("Library/Application Support/io.github.hibiki1213.otomo/libraries/vsco2-ce");
     if !vsco.exists() {
         return;
     }
@@ -742,7 +742,7 @@ fn switching_room_while_playing_keeps_sound() {
 fn switching_room_with_sfz_keeps_sound() {
     use crate::instruments::sfz::{SfzInstrument, SfzSplit};
     let vsco = std::path::PathBuf::from(std::env::var("HOME").unwrap())
-        .join("Library/Application Support/com.midiss.app/libraries/vsco2-ce");
+        .join("Library/Application Support/io.github.hibiki1213.otomo/libraries/vsco2-ce");
     if !vsco.exists() {
         return;
     }

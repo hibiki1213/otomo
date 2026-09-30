@@ -26,28 +26,28 @@ pub fn send(dir: &Path, command: Value) -> Result<Value, String> {
 pub fn send_within(dir: &Path, command: Value, wait: Duration) -> Result<Value, String> {
     let path = dir.join(SOCKET_NAME);
     let mut stream = UnixStream::connect(&path)
-        .map_err(|_| "midiss が起動していません。アプリを開いてからもう一度お試しください。".to_string())?;
+        .map_err(|_| "Otomo が起動していません。アプリを開いてからもう一度お試しください。".to_string())?;
     // The app answers within the window or not at all; never hang the model.
     let timeout = Some(wait);
     let _ = stream.set_read_timeout(timeout);
     let _ = stream.set_write_timeout(timeout);
 
-    writeln!(stream, "{command}").map_err(|e| format!("midiss に送れません: {e}"))?;
+    writeln!(stream, "{command}").map_err(|e| format!("Otomo に送れません: {e}"))?;
     stream.flush().map_err(|e| e.to_string())?;
 
     let mut line = String::new();
     BufReader::new(&stream)
         .read_line(&mut line)
-        .map_err(|e| format!("midiss が応答しません: {e}"))?;
+        .map_err(|e| format!("Otomo が応答しません: {e}"))?;
     let reply: Value = serde_json::from_str(line.trim())
-        .map_err(|e| format!("midiss の応答を解釈できません: {e}"))?;
+        .map_err(|e| format!("Otomo の応答を解釈できません: {e}"))?;
     if reply.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(reply)
     } else {
         Err(reply
             .get("error")
             .and_then(Value::as_str)
-            .unwrap_or("midiss がコマンドを実行できませんでした")
+            .unwrap_or("Otomo がコマンドを実行できませんでした")
             .to_string())
     }
 }

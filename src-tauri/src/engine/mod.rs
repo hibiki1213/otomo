@@ -603,7 +603,7 @@ fn render_loop(mut renderer: Renderer, commands: Receiver<Command>, mut ring: rt
 pub fn start() -> Result<EngineHandle, String> {
     let (trash_tx, trash_rx) = channel::<Box<dyn Any + Send>>();
     std::thread::Builder::new()
-        .name("midiss-janitor".into())
+        .name("otomo-janitor".into())
         .spawn(move || {
             for garbage in trash_rx {
                 drop(garbage);
@@ -613,7 +613,7 @@ pub fn start() -> Result<EngineHandle, String> {
 
     let (tx, rx) = std::sync::mpsc::channel::<Result<EngineHandle, String>>();
     std::thread::Builder::new()
-        .name("midiss-audio".into())
+        .name("otomo-audio".into())
         .spawn(move || {
             let result = (|| {
                 let host = cpal::default_host();
@@ -632,7 +632,7 @@ pub fn start() -> Result<EngineHandle, String> {
                 let (cmd_tx, cmd_rx) = channel();
                 let (producer, consumer) = rtrb::RingBuffer::new(BLOCK * 2 * RING_BLOCKS);
                 std::thread::Builder::new()
-                    .name("midiss-render".into())
+                    .name("otomo-render".into())
                     .spawn(move || render_loop(renderer, cmd_rx, producer))
                     .map_err(|e| e.to_string())?;
 
@@ -679,7 +679,7 @@ pub fn start() -> Result<EngineHandle, String> {
 /// Log rendering health every two seconds while playing, so problems like
 /// dropouts (overruns) or constant limiting (clipped) show up in the log.
 fn spawn_monitor(shared: Arc<Shared>) {
-    let _ = std::thread::Builder::new().name("midiss-monitor".into()).spawn(move || loop {
+    let _ = std::thread::Builder::new().name("otomo-monitor".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(2));
         let s = shared.stats.take();
         *shared.last_stats.lock().unwrap_or_else(|e| e.into_inner()) = s;

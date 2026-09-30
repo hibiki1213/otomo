@@ -14,11 +14,11 @@ export default function App() {
   // Bumped when MCP asks for silence; the player watches it.
   const [stopRequest, setStopRequest] = useState(0);
   const { importPaths, openFiles } = library;
-  const [chatOpen, setChatOpen] = useState(() => readPref("midiss.chat.open", "1") === "1");
-  const [chatWidth, setChatWidth] = useState(() => Number(readPref("midiss.chat.width", "360")) || 360);
+  const [chatOpen, setChatOpen] = useState(() => readPref("otomo.chat.open", "1") === "1");
+  const [chatWidth, setChatWidth] = useState(() => Number(readPref("otomo.chat.width", "360")) || 360);
 
-  useEffect(() => writePref("midiss.chat.open", chatOpen ? "1" : "0"), [chatOpen]);
-  useEffect(() => writePref("midiss.chat.width", String(chatWidth)), [chatWidth]);
+  useEffect(() => writePref("otomo.chat.open", chatOpen ? "1" : "0"), [chatOpen]);
+  useEffect(() => writePref("otomo.chat.width", String(chatWidth)), [chatWidth]);
 
   // Files dropped on the window arrive from the OS with real paths, so they
   // can be imported the same way the open panel's are.
@@ -63,7 +63,7 @@ export default function App() {
         solo?: number[] | null;
         pending?: boolean;
       }>(
-        "midiss://control",
+        "otomo://control",
         (e) => {
           if (e.payload.cmd === "play" && e.payload.songId != null) {
             void playById(e.payload.songId, e.payload.seconds ?? 0, e.payload.pending, {

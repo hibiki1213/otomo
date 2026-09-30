@@ -105,8 +105,8 @@ RustySynth is available under [the MIT license](LICENSE.txt).
 
 ---
 
-**Vendored into midiss** from rustysynth 1.3.6 (MIT, see LICENSE.txt). Local
-changes, all marked `midiss:` in the source:
+**Vendored into Otomo** from rustysynth 1.3.6 (MIT, see LICENSE.txt). Local
+changes, all marked `otomo:` in the source:
 
 - `Synthesizer::render_block_split` and accessors: per-channel dry output
   without channel pan, separate effects return, unchanged full mix.

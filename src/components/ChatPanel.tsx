@@ -50,7 +50,7 @@ const SUGGESTIONS = [
   "この曲のコード進行を教えて",
 ];
 
-/** What each midiss tool is doing, in words. */
+/** What each Otomo tool is doing, in words. */
 const TOOL_LABEL: Record<string, string> = {
   WebSearch: "ウェブで調べる",
   WebFetch: "ページを読む",
@@ -81,10 +81,10 @@ const TOOL_LABEL: Record<string, string> = {
   discard_changes: "編集を破棄",
 };
 
-const LAST_CONV_KEY = "midiss.chat.conv";
+const LAST_CONV_KEY = "otomo.chat.conv";
 /** The last model and effort picked, as the start for a new conversation. */
-const MODEL_KEY = "midiss.chat.model";
-const EFFORT_KEY = "midiss.chat.effort";
+const MODEL_KEY = "otomo.chat.model";
+const EFFORT_KEY = "otomo.chat.effort";
 
 function recall(key: string): string | null {
   try {

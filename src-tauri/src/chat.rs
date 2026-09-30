@@ -1,7 +1,7 @@
 //! Talking to Claude from inside the app.
 //!
 //! Each question starts a headless `claude -p` whose tools are this app's own
-//! MCP server — the same `midiss-mcp` Claude Desktop uses — and web search, so
+//! MCP server — the same `otomo-mcp` Claude Desktop uses — and web search, so
 //! an existing piece is looked up rather than recalled. So an edit made
 //! from the chat panel arrives exactly like one made from Claude Desktop: it is
 //! staged, the banner appears, and nothing is kept until someone presses 適用.
@@ -55,7 +55,7 @@ CREATE INDEX IF NOT EXISTS chat_msg_conv ON chat_msg (conv_id, id);
 
 /// The tools the model may call: this app's MCP server, and Claude Code's
 /// own web tools for finding the music.
-const SERVER_KEY: &str = "midiss";
+const SERVER_KEY: &str = "otomo";
 const WEB_TOOLS: &str = "WebSearch,WebFetch";
 
 /// What `claude --effort` accepts, lowest first.
@@ -121,7 +121,7 @@ pub enum Part {
     #[serde(rename_all = "camelCase")]
     Tool {
         id: String,
-        /// Without the `mcp__midiss__` prefix.
+        /// Without the `mcp__otomo__` prefix.
         name: String,
         input: Value,
         /// "running", "ok" or "error".
@@ -221,9 +221,9 @@ fn claude_path() -> Option<PathBuf> {
 }
 
 fn system_prompt() -> &'static str {
-    "あなたは midiss（MIDI の作曲・再生アプリ）に組み込まれたアシスタントです。\
+    "あなたは Otomo（MIDI の作曲・再生アプリ）に組み込まれたアシスタントです。\
 ユーザーはアプリの右パネルからあなたと話していて、画面には曲とピアノロールが見えています。\n\n\
-- 曲を調べる・作る・直す・鳴らすのは midiss のツールで行う。\n\
+- 曲を調べる・作る・直す・鳴らすのは Otomo のツールで行う。\n\
 - 既にある曲（国歌・クラシック・民謡・スタンダード・有名曲など）を頼まれたら、記憶だけで書かない。\
 まず WebSearch で楽譜ファイルを探し、見つかったら download で取り込む。\
 探す順は、MusicXML（.musicxml / .mxl：楽譜そのもので最も正確）、MIDI、ABC 記法、PDF・画像の楽譜。\
@@ -509,7 +509,7 @@ pub fn chat_send(
         "mcpServers": {
             SERVER_KEY: {
                 "command": server,
-                "env": { "MIDISS_DATA_DIR": chat.data_dir.display().to_string() }
+                "env": { "OTOMO_DATA_DIR": chat.data_dir.display().to_string() }
             }
         }
     });
@@ -517,7 +517,7 @@ pub fn chat_send(
     let mut cmd = Command::new(claude);
     cmd.arg("-p")
         .args(["--output-format", "stream-json", "--include-partial-messages", "--verbose"])
-        // No shell and no file access: midiss, plus the web to look a piece
+        // No shell and no file access: Otomo, plus the web to look a piece
         // up instead of writing it from memory.
         .args(["--tools", WEB_TOOLS])
         .args(["--strict-mcp-config", "--mcp-config"])
@@ -547,7 +547,7 @@ pub fn chat_send(
             cmd.env_remove(&k);
         }
     }
-    cmd.env("CLAUDE_CODE_ENTRYPOINT", "midiss-chat");
+    cmd.env("CLAUDE_CODE_ENTRYPOINT", "otomo-chat");
 
     let mut child = cmd.spawn().map_err(|e| format!("Claude を起動できませんでした: {e}"))?;
     let mut stdin = child.stdin.take().ok_or("stdin を開けませんでした")?;

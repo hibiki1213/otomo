@@ -44,7 +44,7 @@ pub(crate) struct Voice {
     pub(crate) current_mix_gain_left: f32,
     pub(crate) current_mix_gain_right: f32,
 
-    // midiss: gains with the channel pan left out (region pan kept), used by
+    // otomo: gains with the channel pan left out (region pan kept), used by
     // `Synthesizer::render_block_split` so the host can position each channel.
     pub(crate) previous_center_gain_left: f32,
     pub(crate) previous_center_gain_right: f32,

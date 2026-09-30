@@ -7,7 +7,7 @@ import {
   type VenueInfo,
 } from "@/lib/rustEngine";
 
-const STORAGE_KEY = "midiss.spatial";
+const STORAGE_KEY = "otomo.spatial";
 const SEATS = ["前方", "中央", "後方"];
 const OUTPUTS: { id: OutputMode; label: string; hint: string }[] = [
   { id: "speakers", label: "スピーカー", hint: "スピーカー向けのステレオ" },

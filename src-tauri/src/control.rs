@@ -22,7 +22,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const SOCKET_NAME: &str = "control.sock";
 /// The UI listens for this and acts on the payload.
-pub const EVENT: &str = "midiss://control";
+pub const EVENT: &str = "otomo://control";
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -77,7 +77,7 @@ pub fn start(app: &AppHandle) {
     log::info!("control socket at {}", path.display());
 
     let app = app.clone();
-    let _ = std::thread::Builder::new().name("midiss-control".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name("otomo-control".into()).spawn(move || {
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => serve(&app, stream),

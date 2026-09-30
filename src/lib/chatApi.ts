@@ -21,7 +21,7 @@ export type Part =
   | {
       type: "tool";
       id: string;
-      /** Without the `mcp__midiss__` prefix. */
+      /** Without the `mcp__otomo__` prefix. */
       name: string;
       input: Record<string, unknown>;
       status: "running" | "ok" | "error";

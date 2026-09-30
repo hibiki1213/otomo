@@ -1,7 +1,9 @@
 [package]
-name = "midiss-synth"
+name = "otomo-synth"
 version = "0.1.0"
 edition = "2021"
+authors = ["Hibiki Kawabe"]
+license = "MIT"
 description = "Built-in subtractive synthesizer and drum machine for EDM-style sounds"
 
 [dependencies]

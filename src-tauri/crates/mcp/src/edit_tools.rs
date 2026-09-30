@@ -5,7 +5,7 @@
 //! result. Nothing here writes to the library — a person applies the change
 //! in the app, having heard it.
 
-use midiss_score::{program_number, KeyChange, Score, Voice};
+use otomo_score::{program_number, KeyChange, Score, Voice};
 use serde_json::{json, Value};
 
 use crate::control;
@@ -311,7 +311,7 @@ fn apply(name: &str, args: &Value, score: &mut Score) -> Result<String, String> 
             // An unnamed part is called after what it plays, which reads
             // better in the app than "Track 4".
             let name = opt_str(args, "name")
-                .unwrap_or_else(|| midiss_score::program_name(instrument).to_string());
+                .unwrap_or_else(|| otomo_score::program_name(instrument).to_string());
             Ok(score.add_track(instrument, &name, percussion))
         }
         "add_tracks" => {
@@ -331,7 +331,7 @@ fn apply(name: &str, args: &Value, score: &mut Score) -> Result<String, String> 
                 let name = if percussion {
                     "Drums".to_string()
                 } else {
-                    midiss_score::program_name(program).to_string()
+                    otomo_score::program_name(program).to_string()
                 };
                 done.push(score.add_track(program, &name, percussion));
             }
@@ -464,7 +464,7 @@ fn parse_signature(text: &str) -> Result<(u8, u16), String> {
 /// What is staged, for `get_song` and the `pending_changes` tool.
 pub fn describe_staged(data_dir: &std::path::Path, song: &Song) -> Option<String> {
     let staged = pending::staged(data_dir, song.id)?;
-    let mut out = format!("\n未適用の編集（midiss で「適用」を押すと確定）:\n");
+    let mut out = format!("\n未適用の編集（Otomo で「適用」を押すと確定）:\n");
     for change in &staged.changes {
         out.push_str(&format!("  ・{}\n", change.lines().next().unwrap_or(change)));
     }

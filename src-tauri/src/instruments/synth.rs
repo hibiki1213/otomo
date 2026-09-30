@@ -1,6 +1,6 @@
-//! The built-in synthesizer (`midiss-synth`) as a track instrument.
+//! The built-in synthesizer (`otomo-synth`) as a track instrument.
 
-use midiss_synth::Synth;
+use otomo_synth::Synth;
 
 use crate::engine::player::Instrument;
 

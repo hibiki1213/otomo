@@ -19,7 +19,7 @@ export interface TrackInstrumentState {
   error: string | null;
 }
 
-const AUTO_KEY = "midiss.autoAssign";
+const AUTO_KEY = "otomo.autoAssign";
 const SF2: TrackInstrumentState = {
   choice: { kind: "sf2" },
   label: "",

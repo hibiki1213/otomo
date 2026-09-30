@@ -1,4 +1,4 @@
-//! `midiss-mcp` — lets Claude read and listen to the midiss song library.
+//! `otomo-mcp` — lets Claude read and listen to the Otomo song library.
 //!
 //! Claude Desktop starts this as a subprocess and speaks MCP over stdin and
 //! stdout, so **stdout carries the protocol**: anything this program wants to
@@ -17,7 +17,7 @@ fn main() {
     let stdin = std::io::stdin().lock();
     let stdout = std::io::stdout().lock();
     if let Err(e) = rpc::serve(&mut tools::Server, stdin, stdout) {
-        eprintln!("midiss-mcp: {e}");
+        eprintln!("otomo-mcp: {e}");
         std::process::exit(1);
     }
 }

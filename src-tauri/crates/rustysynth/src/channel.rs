@@ -33,7 +33,7 @@ pub(crate) struct Channel {
 
     last_data_type: DataType,
 
-    // midiss: the mixer's level for this channel (linear). A host setting,
+    // otomo: the mixer's level for this channel (linear). A host setting,
     // not a MIDI controller, so no reset touches it.
     pub(crate) gain: f32,
 }

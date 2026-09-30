@@ -1,4 +1,4 @@
-//! Connecting midiss to Claude Desktop.
+//! Connecting Otomo to Claude Desktop.
 //!
 //! Claude Desktop starts its MCP servers from a JSON file of its own, so
 //! "connect" means adding one entry to that file — and nothing else. The
@@ -6,7 +6,7 @@
 //! up themselves, so it is read, merged and written back: never replaced,
 //! never rewritten from a template, and always copied aside first.
 //!
-//! Only `mcpServers.midiss` is ever touched.
+//! Only `mcpServers.otomo` is ever touched.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,8 +16,8 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 /// The key this app owns in Claude Desktop's configuration.
-const SERVER_KEY: &str = "midiss";
-const SERVER_BIN: &str = "midiss-mcp";
+const SERVER_KEY: &str = "otomo";
+const SERVER_BIN: &str = "otomo-mcp";
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -246,31 +246,31 @@ mod tests {
             },
             "preferences": { "theme": "dark" }
         });
-        let after = merged(Some(existing), "/Applications/midiss.app/Contents/MacOS/midiss-mcp");
+        let after = merged(Some(existing), "/Applications/Otomo.app/Contents/MacOS/otomo-mcp");
 
         let servers = servers_of(&after);
         assert_eq!(servers.len(), 2);
         assert_eq!(servers["freee-mcp"]["command"], "/opt/freee");
         assert_eq!(servers["freee-mcp"]["args"][0], "--serve", "their arguments survive");
         assert_eq!(
-            servers["midiss"]["command"],
-            "/Applications/midiss.app/Contents/MacOS/midiss-mcp"
+            servers["otomo"]["command"],
+            "/Applications/Otomo.app/Contents/MacOS/otomo-mcp"
         );
         assert_eq!(after["preferences"]["theme"], "dark", "the rest of the file survives");
     }
 
     #[test]
     fn connecting_again_updates_the_path_rather_than_adding_a_second_entry() {
-        let first = merged(None, "/old/midiss-mcp");
-        let second = merged(Some(first), "/new/midiss-mcp");
+        let first = merged(None, "/old/otomo-mcp");
+        let second = merged(Some(first), "/new/otomo-mcp");
         let servers = servers_of(&second);
         assert_eq!(servers.len(), 1);
-        assert_eq!(servers["midiss"]["command"], "/new/midiss-mcp");
+        assert_eq!(servers["otomo"]["command"], "/new/otomo-mcp");
     }
 
     #[test]
     fn a_broken_config_is_reported_not_overwritten() {
-        let dir = std::env::temp_dir().join(format!("midiss-mcp-cfg-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("otomo-mcp-cfg-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("claude_desktop_config.json");
         std::fs::write(&path, "{ this is not json").unwrap();
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn writing_keeps_a_copy_of_what_was_there() {
-        let dir = std::env::temp_dir().join(format!("midiss-mcp-bak-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("otomo-mcp-bak-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("claude_desktop_config.json");
