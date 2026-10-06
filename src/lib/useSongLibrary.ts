@@ -10,7 +10,8 @@ import {
   listPendingEdits,
   pasteClip,
   pendingData,
-  undoApply,
+  redoSong,
+  undoSong,
   libraryAvailable,
   listSongs,
   pickMidiFiles,
@@ -23,6 +24,7 @@ import {
   type PasteResult,
   type PendingEdit,
   type SongRecord,
+  type Stepped,
 } from "./songsApi";
 
 /**
@@ -265,14 +267,20 @@ export function useSongLibrary() {
       },
       [play, query, refresh, refreshPending]
     ),
-    undoEdit: useCallback(
-      async (songId: number) => {
+    /**
+     * Step a song's history back (undo) or forward (redo). The song on screen
+     * reloads where it was, paused; another song's entry just updates.
+     * Errors come back as text ("nothing to undo") for the caller to show.
+     */
+    stepHistory: useCallback(
+      async (songId: number, back: boolean, seconds?: number): Promise<Stepped | string> => {
         try {
-          await play(await undoApply(songId));
+          const stepped = await (back ? undoSong(songId) : redoSong(songId));
           await refresh(query);
+          if (wanted.current === songId) await play(stepped.record, seconds ?? 0, false, { autoplay: false });
+          return stepped;
         } catch (e) {
-          console.error(e);
-          setError(String(e));
+          return String(e);
         }
       },
       [play, query, refresh]

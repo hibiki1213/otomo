@@ -955,8 +955,10 @@ input[type="range"]::-moz-range-thumb {
 
 .roll-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  row-gap: 6px;
   padding: 6px 10px;
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
@@ -1046,6 +1048,10 @@ input[type="range"]::-moz-range-thumb {
   margin-left: 10px;
   font-size: 11px;
   color: var(--text-faint);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* A range being handed to Claude: whole beats × whole keys. */
@@ -1123,6 +1129,210 @@ input[type="range"]::-moz-range-thumb {
     background: rgba(0, 0, 0, 0.05);
     border-color: rgba(0, 0, 0, 0.3);
   }
+}
+
+/* Which lanes the roll shows. */
+.roll-lane-toggles {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+  margin-right: 2px;
+  border-right: 1px solid var(--border);
+}
+
+/* ---------- Controller lane (under the roll) ---------- */
+.lane-shell {
+  border-top: 1px solid var(--border);
+  background: var(--roll-bg);
+}
+
+.lane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.lane-head select {
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  max-width: 220px;
+}
+
+.lane-readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lane-main {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.lane-main canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.lane-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1.5px;
+  background: #f5a623;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ---------- Event list ---------- */
+.events-view {
+  background: var(--panel);
+}
+
+.events-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.events-toolbar .toggle-chip:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.events-count {
+  margin-left: 3px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.events-channel {
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  max-width: 220px;
+}
+
+.events-shown {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.events-table {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-size: 12px;
+}
+
+.events-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 22px;
+  display: grid;
+  grid-template-columns: 78px 72px 52px 120px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.events-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.events-row:hover {
+  background: var(--hover);
+}
+
+.events-row.current {
+  background: rgba(245, 166, 35, 0.14);
+  color: var(--text);
+}
+
+.events-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  cursor: default;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.events-head:hover {
+  background: var(--panel-2);
+}
+
+.events-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.events-ch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+}
+
+.events-ch i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.events-type {
+  color: var(--text-faint);
+}
+
+.events-row.is-sysex .events-type,
+.events-row.is-program .events-type {
+  color: var(--accent);
+}
+
+.events-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-faint);
 }
 
 /* ---------- Track list ---------- */

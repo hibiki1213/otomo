@@ -11,7 +11,6 @@ import {
   type PlaybackEngine,
   type PlayerState,
   type SongInfo,
-  type TempoEvent,
   type TimeSignatureEvent,
   type KeySignatureEvent,
   type MarkerEvent,
@@ -25,7 +24,23 @@ import LibraryManager from "@/components/LibraryManager";
 import PasteDialog from "@/components/PasteDialog";
 import type { PasteRequest, RollClip } from "@/lib/songsApi";
 import { useTrackInstruments } from "@/lib/useTrackInstruments";
-import type { BarBeat, RollSelection } from "@/lib/rollSelection";
+import type { RollSelection } from "@/lib/rollSelection";
+import { lyricLines, type ChordEvent, type LyricLine } from "@/lib/midiText";
+import { drumName } from "@/lib/midiNames";
+import { scoreChords, type ChordAt } from "@/lib/scoreApi";
+import { libraryAvailable } from "@/lib/songsApi";
+import ControllerLane from "@/components/ControllerLane";
+import EventList from "@/components/EventList";
+import {
+  beatOfBar,
+  beatPosition,
+  beatToTime,
+  bpmAtTime,
+  buildBarMap,
+  buildTempoMap,
+  playheadBar,
+  timeToBeat,
+} from "@/lib/timeline";
 
 /** A piano-roll range, before it knows which song entry it belongs to. */
 export type RollSelectionDraft = Omit<RollSelection, "id" | "songId" | "songTitle" | "excluded">;
@@ -36,166 +51,6 @@ type EngineKind = "native" | "web";
 
 function createEngine(kind: EngineKind): PlaybackEngine {
   return kind === "native" ? new RustEngine() : new MidiEngine();
-}
-
-/* ---------- tempo / time-signature map ---------- */
-
-interface TempoSegment {
-  startTime: number;
-  endTime: number;
-  startBeat: number;
-  endBeat: number;
-  bpm: number;
-}
-
-interface TempoMap {
-  segments: TempoSegment[];
-  totalBeats: number;
-}
-
-function buildTempoMap(tempos: TempoEvent[], duration: number): TempoMap {
-  const segments: TempoSegment[] = [];
-  let beat = 0;
-  for (let i = 0; i < tempos.length; i++) {
-    const startTime = tempos[i].time;
-    const endTime = i + 1 < tempos.length ? tempos[i + 1].time : duration;
-    const span = Math.max(0, endTime - startTime);
-    const beats = (span * tempos[i].bpm) / 60;
-    segments.push({
-      startTime,
-      endTime,
-      startBeat: beat,
-      endBeat: beat + beats,
-      bpm: tempos[i].bpm,
-    });
-    beat += beats;
-  }
-  return { segments, totalBeats: beat };
-}
-
-function findTempoSegmentByTime(map: TempoMap, t: number): TempoSegment {
-  const segs = map.segments;
-  let lo = 0;
-  let hi = segs.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >>> 1;
-    if (segs[mid].startTime <= t) lo = mid;
-    else hi = mid - 1;
-  }
-  return segs[lo];
-}
-
-function findTempoSegmentByBeat(map: TempoMap, b: number): TempoSegment {
-  const segs = map.segments;
-  let lo = 0;
-  let hi = segs.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >>> 1;
-    if (segs[mid].startBeat <= b) lo = mid;
-    else hi = mid - 1;
-  }
-  return segs[lo];
-}
-
-function timeToBeat(map: TempoMap, t: number): number {
-  const seg = findTempoSegmentByTime(map, t);
-  return seg.startBeat + ((t - seg.startTime) * seg.bpm) / 60;
-}
-
-function beatToTime(map: TempoMap, b: number): number {
-  const seg = findTempoSegmentByBeat(map, b);
-  return seg.startTime + ((b - seg.startBeat) * 60) / seg.bpm;
-}
-
-function bpmAtTime(map: TempoMap, t: number): number {
-  return findTempoSegmentByTime(map, t).bpm;
-}
-
-interface BarBoundary {
-  beat: number;
-  bar: number;
-}
-
-/**
- * The (beat, bar-number) boundaries the time signatures make, within
- * [0, totalBeats].
- *
- * Same rule as the Rust side (`BarMap` in src-tauri/crates/score), so that a
- * bar number means the same here as in what Claude reads and writes: a
- * signature change takes effect at the next bar line of the signature in
- * force, and of two changes inside one bar the later wins. Files that put a
- * change mid-bar exist (a 1/4 pickup with 4/4 starting half-way through it);
- * starting the new bars right there would put every later bar off by the rest
- * of that bar.
- */
-function buildBarMap(
-  timeSignatures: TimeSignatureEvent[],
-  map: TempoMap
-): { bars: BarBoundary[]; beatsPerBarAt: (beat: number) => number } {
-  const sigs = timeSignatures
-    .map((s) => ({ ...s, startBeat: timeToBeat(map, s.time) }))
-    .sort((a, b) => a.startBeat - b.startBeat);
-  // Spans of bars under one signature: first bar (0-based), start beat, bar length.
-  const spans: { first: number; start: number; perBar: number }[] = [];
-  for (const s of sigs) {
-    const perBar = s.numerator * (4 / s.denominator);
-    const prev = spans[spans.length - 1];
-    let first = 0;
-    let start = 0;
-    if (prev) {
-      const bars = Math.ceil(Math.max(0, s.startBeat - prev.start) / prev.perBar - 1e-6);
-      first = prev.first + bars;
-      start = prev.start + bars * prev.perBar;
-    }
-    if (prev && prev.first === first) spans.pop();
-    spans.push({ first, start, perBar });
-  }
-  const total = map.totalBeats;
-  const bars: BarBoundary[] = [];
-  for (let i = 0; i < spans.length; i++) {
-    const { first, start, perBar } = spans[i];
-    const end = i + 1 < spans.length ? spans[i + 1].start : total;
-    for (let k = 0, b = start; b < end - 1e-6; k++, b = start + k * perBar) {
-      bars.push({ beat: b, bar: first + k });
-    }
-  }
-  if (bars.length === 0) bars.push({ beat: 0, bar: 0 });
-  const beatsPerBarAt = (beat: number): number => {
-    let span = spans[0];
-    for (const s of spans) {
-      if (s.start <= beat + 1e-6) span = s;
-      else break;
-    }
-    return span?.perBar ?? 4;
-  };
-  return { bars, beatsPerBarAt };
-}
-
-/** Where 1-based `bar` starts, in quarter notes; past the end, bars of the last length. */
-function beatOfBar(song: SongInfo, bar: number): number {
-  const { bars, beatsPerBarAt } = buildBarMap(song.timeSignatures, buildTempoMap(song.tempos, song.duration));
-  if (bar <= bars.length) return bars[Math.max(0, bar - 1)].beat;
-  const last = bars[bars.length - 1];
-  return last.beat + (bar - bars.length) * beatsPerBarAt(last.beat);
-}
-
-/** The bar the playhead is in. */
-function playheadBar(song: SongInfo, seconds: number): number {
-  const tempo = buildTempoMap(song.tempos, song.duration);
-  return beatPosition(buildBarMap(song.timeSignatures, tempo).bars, timeToBeat(tempo, seconds)).bar;
-}
-
-/** A beat (quarter notes from the start) as 1-based bar and beat-in-bar. */
-function beatPosition(bars: BarBoundary[], beat: number): BarBeat {
-  let lo = 0;
-  let hi = bars.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (bars[mid].beat <= beat + 1e-6) lo = mid;
-    else hi = mid - 1;
-  }
-  const b = bars[lo] ?? { beat: 0, bar: 0 };
-  return { bar: b.bar + 1, beat: beat - b.beat + 1 };
 }
 
 /* ---------- icons ---------- */
@@ -283,6 +138,7 @@ export default function Player({
   onCopy,
   onPaste,
   pasteStaged,
+  onHistory,
 }: {
   source: SongSource | null;
   /** Reports what opening the song revealed, for the library entry. */
@@ -302,6 +158,8 @@ export default function Player({
   onPaste?: (request: PasteRequest) => Promise<boolean>;
   /** Claude has edits waiting on the open song (a paste joins them). */
   pasteStaged?: boolean;
+  /** ⌘Z / ⌘⇧Z on the open song; `seconds` is where to come back to. */
+  onHistory?: (songId: number, back: boolean, seconds: number) => void;
 }) {
   const { t } = useI18n();
   const engineRef = useRef<PlaybackEngine | null>(null);
@@ -315,6 +173,8 @@ export default function Player({
   );
 
   const [song, setSong] = useState<SongInfo | null>(null);
+  /** The file behind `song`, for the event list. */
+  const [songBuffer, setSongBuffer] = useState<ArrayBuffer | null>(null);
   /** Library id of the song on screen (instruments are remembered per song). */
   const [songId, setSongId] = useState<number | null>(null);
   const [state, setState] = useState<PlayerState>("idle");
@@ -368,6 +228,7 @@ export default function Player({
         const info = await engine.load(buffer, name);
         if (engineRef.current !== engine) return;
         setSong(info);
+        setSongBuffer(buffer);
         setSongId(id);
         // Loading gave the engine fresh, unmuted, full-level tracks.
         sentMuted.current = info.tracks.map(() => false);
@@ -587,6 +448,13 @@ export default function Player({
       });
   }, [onAttachSelection, songId, source, song]);
 
+  // Chords from the notes, for files that name none (read by the Rust side).
+  const staged = source?.staged === true;
+  const estimateChords = useMemo(
+    () => (songId != null && libraryAvailable() ? () => scoreChords(songId, staged) : undefined),
+    [songId, staged]
+  );
+
   const copySelection = useMemo(() => {
     if (!onCopy || songId == null) return undefined;
     return (draft: RollClipDraft) =>
@@ -612,6 +480,24 @@ export default function Player({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [clip, onPaste, song, songId]);
+
+  // ⌘Z undoes the song's last change, ⌘⇧Z redoes it. In a text field the
+  // keys are the field's own.
+  const positionRef = useRef(position);
+  positionRef.current = position;
+  useEffect(() => {
+    if (!onHistory || songId == null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z" || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (document.querySelector(".modal-backdrop")) return;
+      e.preventDefault();
+      onHistory(songId, !e.shiftKey, positionRef.current);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onHistory, songId]);
 
   const trackList = useMemo(() => {
     if (!song) return null;
@@ -818,6 +704,8 @@ export default function Player({
             getLivePosition={getLivePosition}
             onAttach={attachSelection}
             onCopy={copySelection}
+            estimateChords={estimateChords}
+            buffer={songBuffer}
           />
 
           {trackList}
@@ -1140,6 +1028,191 @@ const RULER_H = 38;
 const ROLL_TOTAL_H = 360;
 const ROLL_NOTES_H = ROLL_TOTAL_H - RULER_H;
 const OVERVIEW_H = 64;
+/** The chord and lyric lanes under the ruler. */
+const TEXT_LANE_H = 20;
+/** Drum rows: as tall as fits this, within the row limits. */
+const DRUMS_MAX_H = 180;
+const DRUM_ROW_MIN = 9;
+const DRUM_ROW_MAX = 15;
+/** Where the playhead line starts (the ruler's flag sits above). */
+const PLAYHEAD_TOP = 34;
+const LANES_KEY = "otomo.roll.lanes";
+
+/** Which extra lanes and drawings the roll shows; remembered per viewer. */
+interface RollLanes {
+  chords: boolean;
+  lyrics: boolean;
+  bends: boolean;
+  controllers: boolean;
+}
+
+function readLanes(): RollLanes {
+  const all = { chords: true, lyrics: true, bends: true, controllers: true };
+  try {
+    return { ...all, ...JSON.parse(localStorage.getItem(LANES_KEY) ?? "{}") };
+  } catch {
+    return all;
+  }
+}
+
+/** The roll's vertical layout: ruler, text lanes, pitched notes, drum rows. */
+interface RollLayout {
+  chordsTop: number;
+  lyricsTop: number;
+  notesTop: number;
+  notesH: number;
+  drumTop: number;
+  drumRowH: number;
+  /** Drum keys from the top row down (highest first, as on a keyboard). */
+  drumKeys: number[];
+  totalH: number;
+}
+
+/** Index of the last item at or before `t`, or -1. */
+function lastAtOrBefore(items: { time: number }[], t: number): number {
+  let lo = 0;
+  let hi = items.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (items[mid].time <= t) {
+      found = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return found;
+}
+
+/** What the text lanes need to know about the view. */
+interface LaneView {
+  startT: number;
+  endT: number;
+  scrollX: number;
+  pxPerSec: number;
+  w: number;
+  dark: boolean;
+  position: number;
+}
+
+const LANE_FONT = '11px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif';
+
+/** Draw `text` within `room` pixels, cut short with "…" if it does not fit. */
+function fitText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, room: number) {
+  if (ctx.measureText(text).width <= room) {
+    ctx.fillText(text, x, y);
+    return;
+  }
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (ctx.measureText(text.slice(0, mid) + "…").width <= room) lo = mid;
+    else hi = mid - 1;
+  }
+  if (lo > 0) ctx.fillText(text.slice(0, lo) + "…", x, y);
+}
+
+/** Chord symbols, each from where it starts to the next; the one playing lit. */
+function drawChordLane(
+  ctx: CanvasRenderingContext2D,
+  v: LaneView,
+  top: number,
+  chords: ChordEvent[],
+  info: { estimated: boolean; pending: boolean; tag: string; pendingText: string; duration: number }
+) {
+  const h = TEXT_LANE_H;
+  ctx.save();
+  ctx.fillStyle = v.dark ? "#101215" : "#e9ebee";
+  ctx.fillRect(0, top, v.w, h);
+  ctx.font = `600 ${LANE_FONT}`;
+  ctx.textBaseline = "middle";
+  const ink = v.dark ? "#e8eaed" : "#1a1a1a";
+  const faint = v.dark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.45)";
+  const tick = v.dark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.2)";
+  for (let i = Math.max(0, lastAtOrBefore(chords, v.startT)); i < chords.length; i++) {
+    const c = chords[i];
+    if (c.time > v.endT) break;
+    const end = i + 1 < chords.length ? chords[i + 1].time : info.duration;
+    if (c.name === "—") continue;
+    const x0 = c.time * v.pxPerSec - v.scrollX;
+    const x1 = end * v.pxPerSec - v.scrollX;
+    if (x1 < 0) continue;
+    const playing = c.time <= v.position && v.position < end;
+    if (playing) {
+      ctx.fillStyle = "rgba(245,166,35,0.18)";
+      ctx.fillRect(x0, top, x1 - x0, h);
+    }
+    ctx.fillStyle = tick;
+    ctx.fillRect(Math.round(x0), top + 3, 1, h - 6);
+    // A chord that started off-screen keeps its name at the left edge.
+    const tx = Math.max(x0 + 4, 4);
+    const room = x1 - tx - 3;
+    if (room < 10) continue;
+    ctx.fillStyle = c.name === "?" ? faint : playing ? "#f5a623" : ink;
+    fitText(ctx, c.name, tx, top + h / 2, room);
+  }
+  // Say when the chords are a reading of the notes, not the file's own.
+  if (info.estimated || info.pending) {
+    ctx.font = LANE_FONT;
+    const label = info.pending ? info.pendingText : info.tag;
+    const lw = ctx.measureText(label).width + 10;
+    ctx.fillStyle = v.dark ? "rgba(16,18,21,0.9)" : "rgba(233,235,238,0.92)";
+    ctx.fillRect(v.w - lw - 4, top + 2, lw, h - 4);
+    ctx.fillStyle = faint;
+    ctx.fillText(label, v.w - lw + 1, top + h / 2);
+  }
+  ctx.restore();
+}
+
+/**
+ * Lyrics: each syllable where it is sung when the line has room, otherwise
+ * the line as one string from where it starts. Sung syllables are lit.
+ */
+function drawLyricLane(
+  ctx: CanvasRenderingContext2D,
+  v: LaneView,
+  top: number,
+  lines: LyricLine[],
+  duration: number
+) {
+  const h = TEXT_LANE_H;
+  ctx.save();
+  ctx.fillStyle = v.dark ? "#0e0f12" : "#eef0f2";
+  ctx.fillRect(0, top, v.w, h);
+  ctx.font = LANE_FONT;
+  ctx.textBaseline = "middle";
+  const sung = v.dark ? "#d7b8f3" : "#6a2ca8";
+  const coming = v.dark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.55)";
+  const y = top + h / 2;
+  for (let i = Math.max(0, lastAtOrBefore(lines, v.startT)); i < lines.length; i++) {
+    const line = lines[i];
+    if (line.time > v.endT) break;
+    const lineEnd = i + 1 < lines.length ? lines[i + 1].time : duration;
+    const x0 = line.time * v.pxPerSec - v.scrollX;
+    const x1 = lineEnd * v.pxPerSec - v.scrollX;
+    if (x1 < 0) continue;
+    const xs = line.syllables.map((s) => s.time * v.pxPerSec - v.scrollX);
+    const fits = line.syllables.every((s, k) => {
+      const next = k + 1 < xs.length ? xs[k + 1] : x1;
+      return ctx.measureText(s.text).width <= next - xs[k] + 1;
+    });
+    if (fits) {
+      line.syllables.forEach((s, k) => {
+        ctx.fillStyle = s.time <= v.position ? sung : coming;
+        ctx.fillText(s.text, xs[k], y);
+      });
+    } else {
+      const text = line.syllables.map((s) => s.text).join("");
+      const tx = Math.max(x0, 2);
+      const room = x1 - tx - 4;
+      if (room < 12) continue;
+      ctx.fillStyle = line.time <= v.position ? sung : coming;
+      fitText(ctx, text, tx, y, room);
+    }
+  }
+  ctx.restore();
+}
+
 const MIN_PX_PER_SEC = 6;
 const MAX_PX_PER_SEC = 480;
 const FOLLOW_EDGE = 0.65;
@@ -1153,6 +1226,7 @@ function PianoRoll({
   getLivePosition,
   onAttach,
   onCopy,
+  estimateChords,
 }: {
   song: SongInfo;
   position: number;
@@ -1164,8 +1238,11 @@ function PianoRoll({
   onAttach?: (sel: RollSelectionDraft) => void;
   /** …or to copy it (⌘C). */
   onCopy?: (clip: RollClipDraft) => void;
+  /** Works out the chords when the file names none (library songs only). */
+  estimateChords?: () => Promise<ChordAt[]>;
 }) {
   const { t } = useI18n();
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const mainRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playheadRef = useRef<HTMLDivElement | null>(null);
@@ -1179,11 +1256,94 @@ function PianoRoll({
   const [follow, setFollow] = useState(true);
   const [dark, setDark] = useState(true);
 
+  const [lanes, setLanes] = useState<RollLanes>(readLanes);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LANES_KEY, JSON.stringify(lanes));
+    } catch {
+      /* ignore */
+    }
+  }, [lanes]);
+  const toggleLane = (key: keyof RollLanes) => setLanes((l) => ({ ...l, [key]: !l[key] }));
+
+  // Chords: the file's own chart, else worked out from the notes on demand.
+  const [estimated, setEstimated] = useState<{ song: SongInfo; chords: ChordAt[] | null } | null>(null);
+  const wantEstimate = lanes.chords && song.chords.length === 0 && !!estimateChords;
+  useEffect(() => {
+    if (!wantEstimate || !estimateChords || estimated?.song === song) return;
+    let cancelled = false;
+    setEstimated({ song, chords: null });
+    estimateChords()
+      .then((chords) => !cancelled && setEstimated({ song, chords }))
+      .catch((e) => {
+        console.error("score_chords", e);
+        if (!cancelled) setEstimated({ song, chords: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantEstimate, song, estimateChords]);
+  const chordList: ChordEvent[] =
+    song.chords.length > 0 ? song.chords : estimated?.song === song ? estimated.chords ?? [] : [];
+  const chordsEstimated = song.chords.length === 0;
+  const chordsPending = wantEstimate && (estimated?.song !== song || estimated.chords === null);
+  const showChords = lanes.chords && (song.chords.length > 0 || !!estimateChords);
+
+  const lyrics = useMemo(
+    () => lyricLines(song.markers.filter((m) => m.kind === "lyrics")),
+    [song]
+  );
+  const showLyrics = lanes.lyrics && lyrics.length > 0;
+  const hasBends = useMemo(() => song.channels.some((c) => c.bend.length > 0), [song]);
+
+  // Drums get rows of their own; the keyboard is for pitched notes.
+  const isDrum = useMemo(() => song.tracks.map((tr) => tr.isPercussion), [song]);
   const padded = useMemo(() => {
-    const lo = Math.max(0, song.minMidi - 2);
-    const hi = Math.min(127, song.maxMidi + 2);
+    let min = 127;
+    let max = 0;
+    for (const n of song.notes) {
+      if (isDrum[n.trackIndex]) continue;
+      if (n.midi < min) min = n.midi;
+      if (n.midi > max) max = n.midi;
+    }
+    if (min > max) {
+      min = 48;
+      max = 72;
+    }
+    const lo = Math.max(0, min - 2);
+    const hi = Math.min(127, max + 2);
     return { lo, hi, range: Math.max(12, hi - lo) };
-  }, [song]);
+  }, [song, isDrum]);
+
+  const layout = useMemo<RollLayout>(() => {
+    const keys = new Set<number>();
+    let pitched = false;
+    for (const n of song.notes) {
+      if (isDrum[n.trackIndex]) keys.add(n.midi);
+      else pitched = true;
+    }
+    const drumKeys = [...keys].sort((a, b) => b - a);
+    const chordsTop = RULER_H;
+    const lyricsTop = chordsTop + (showChords ? TEXT_LANE_H : 0);
+    const notesTop = lyricsTop + (showLyrics ? TEXT_LANE_H : 0);
+    const notesH = pitched || drumKeys.length === 0 ? ROLL_NOTES_H : 0;
+    const drumTop = notesTop + notesH;
+    const maxRow = notesH === 0 ? DRUM_ROW_MAX + 4 : DRUM_ROW_MAX;
+    const drumRowH = drumKeys.length
+      ? Math.max(DRUM_ROW_MIN, Math.min(maxRow, Math.floor(DRUMS_MAX_H / drumKeys.length)))
+      : 0;
+    return {
+      chordsTop,
+      lyricsTop,
+      notesTop,
+      notesH,
+      drumTop,
+      drumRowH,
+      drumKeys,
+      totalH: drumTop + drumKeys.length * drumRowH,
+    };
+  }, [song, isDrum, showChords, showLyrics]);
 
   const tempoMap = useMemo(
     () => buildTempoMap(song.tempos, song.duration),
@@ -1193,10 +1353,15 @@ function PianoRoll({
     () => buildBarMap(song.timeSignatures, tempoMap),
     [song, tempoMap]
   );
+  const barTimes = useMemo(
+    () => barMap.bars.map((b) => beatToTime(tempoMap, b.beat)),
+    [barMap, tempoMap]
+  );
 
-  /* range selection: whole beats × whole keys, to hand to Claude */
-  const [sel, setSel] = useState<{ b0: number; b1: number; lo: number; hi: number } | null>(null);
-  const selDragRef = useRef<{ beat: number; midi: number; x: number; y: number; moved: boolean } | null>(null);
+  /* range selection: whole beats × whole keys (or drum rows), to hand to Claude */
+  type Pane = "keys" | "drums";
+  const [sel, setSel] = useState<{ b0: number; b1: number; lo: number; hi: number; pane: Pane } | null>(null);
+  const selDragRef = useRef<{ beat: number; midi: number; pane: Pane; x: number; y: number; moved: boolean } | null>(null);
   useEffect(() => setSel(null), [song]);
   useEffect(() => {
     if (!sel) return;
@@ -1276,9 +1441,9 @@ function PianoRoll({
     }
   }, [position, isPlaying, follow, pxPerSec, viewportW, maxScroll, scrollX]);
 
-  /* wheel: scroll + cmd/ctrl to zoom */
+  /* wheel: scroll + cmd/ctrl to zoom (over the notes or the lane below) */
   useEffect(() => {
-    const el = mainRef.current;
+    const el = stageRef.current;
     if (!el) return;
     const handler = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -1320,7 +1485,7 @@ function PianoRoll({
     if (!canvas) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = viewportW;
-    const h = ROLL_TOTAL_H;
+    const h = layout.totalH;
     if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
       canvas.width = w * dpr;
       canvas.height = h * dpr;
@@ -1392,12 +1557,12 @@ function PianoRoll({
     }
 
     /* horizontal grid: octaves */
-    const noteH = ROLL_NOTES_H / padded.range;
+    const noteH = layout.notesH / padded.range;
+    const notesBottom = layout.notesTop + layout.notesH;
     ctx.strokeStyle = octaveLine;
     ctx.lineWidth = 1;
-    for (let m = Math.ceil(padded.lo / 12) * 12; m <= padded.hi; m += 12) {
-      const y =
-        RULER_H + ROLL_NOTES_H - (m - padded.lo) * noteH + 0.5;
+    for (let m = Math.ceil(padded.lo / 12) * 12; m <= padded.hi && layout.notesH > 0; m += 12) {
+      const y = notesBottom - (m - padded.lo) * noteH + 0.5;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(w, y);
@@ -1513,21 +1678,19 @@ function PianoRoll({
       ctx.restore();
     }
 
-    /* markers (rehearsal marks, cue points, lyrics) — flags on the ruler */
+    /* markers (rehearsal marks, cue points) — flags on the ruler; lyrics
+     * have a lane of their own */
     if (song.markers.length > 0) {
       ctx.save();
       ctx.font =
         '10px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif';
       ctx.textBaseline = "top";
       for (const m of song.markers) {
+        if (m.kind === "lyrics") continue;
         if (m.time < startT - 1 || m.time > endT + 1) continue;
         const x = Math.round(m.time * pxPerSec - scrollX) + 0.5;
         const color =
-          m.kind === "lyrics"
-            ? dark
-              ? "#bf5af2"
-              : "#7d2ec0"
-            : m.kind === "cuePoint"
+          m.kind === "cuePoint"
             ? dark
               ? "#30d158"
               : "#1a7d3a"
@@ -1559,31 +1722,115 @@ function PianoRoll({
       ctx.restore();
     }
 
+    const lane = { startT, endT, scrollX, pxPerSec, w, dark, position };
+    if (showChords) {
+      drawChordLane(ctx, lane, layout.chordsTop, chordList, {
+        estimated: chordsEstimated,
+        pending: chordsPending,
+        tag: t.roll.estimated,
+        pendingText: t.roll.estimating,
+        duration: song.duration,
+      });
+    }
+    if (showLyrics) drawLyricLane(ctx, lane, layout.lyricsTop, lyrics, song.duration);
+
+    /* drum rows: one per sound, named, under the keyboard */
+    const drumRow = new Map(layout.drumKeys.map((k, i) => [k, i]));
+    if (layout.drumKeys.length > 0) {
+      for (let i = 0; i < layout.drumKeys.length; i++) {
+        if (i % 2 === 1) continue;
+        ctx.fillStyle = dark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.03)";
+        ctx.fillRect(0, layout.drumTop + i * layout.drumRowH, w, layout.drumRowH);
+      }
+      ctx.strokeStyle = dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.14)";
+      ctx.beginPath();
+      ctx.moveTo(0, layout.drumTop + 0.5);
+      ctx.lineTo(w, layout.drumTop + 0.5);
+      ctx.stroke();
+    }
+
     /* notes — visible only */
     const playT = position;
+    const rectH = Math.max(2, noteH - 0.5);
     for (const note of song.notes) {
       if (note.time + note.duration < startT) continue;
       if (note.time > endT) continue;
+      const track = song.tracks[note.trackIndex];
       const isMuted = muted[note.trackIndex];
       const x = note.time * pxPerSec - scrollX;
+      const isPast = note.time < playT;
+      const color = isMuted ? mutedColor : track.color;
+
+      if (track.isPercussion) {
+        // A hit has no length worth drawing: a diamond where it lands.
+        const row = drumRow.get(note.midi);
+        if (row === undefined) continue;
+        const isActive = !isMuted && note.time <= playT && playT - note.time < 0.12;
+        const cy = layout.drumTop + (row + 0.5) * layout.drumRowH;
+        const r = Math.max(2.5, Math.min(layout.drumRowH * 0.42, 5.5));
+        ctx.globalAlpha = isMuted ? 0.28 : isActive ? 1 : isPast ? 0.55 + note.velocity * 0.45 : 0.32 + note.velocity * 0.4;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(x, cy - r);
+        ctx.lineTo(x + r, cy);
+        ctx.lineTo(x, cy + r);
+        ctx.lineTo(x - r, cy);
+        ctx.closePath();
+        ctx.fill();
+        if (isActive) {
+          ctx.globalAlpha = 0.6;
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        continue;
+      }
+      if (layout.notesH === 0) continue;
+
       const noteW = Math.max(2, note.duration * pxPerSec - 0.5);
-      const y =
-        RULER_H + ROLL_NOTES_H - (note.midi - padded.lo + 1) * noteH;
-      const rectH = Math.max(2, noteH - 0.5);
+      const y = notesBottom - (note.midi - padded.lo + 1) * noteH;
       const isActive =
         !isMuted && note.time <= playT && note.time + note.duration > playT;
-      const isPast = note.time < playT;
-
-      let color = song.tracks[note.trackIndex].color;
-      if (isMuted) color = mutedColor;
       let alpha: number;
       if (isMuted) alpha = 0.28;
       else if (isActive) alpha = 1;
       else if (isPast) alpha = 0.55 + note.velocity * 0.45;
       else alpha = 0.32 + note.velocity * 0.28;
+      ctx.fillStyle = color;
+
+      // Bent notes follow the bend; a faint outline keeps the written pitch.
+      const bends = lanes.bends ? song.channels[track.channel]?.bend : undefined;
+      if (bends && bends.length > 0) {
+        const end = note.time + note.duration;
+        let i = lastAtOrBefore(bends, note.time);
+        let v = i >= 0 ? bends[i].value : 0;
+        if (Math.abs(v) > 0.01 || (i + 1 < bends.length && bends[i + 1].time < end)) {
+          ctx.globalAlpha = alpha * 0.5;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, Math.max(1, noteW - 1), Math.max(1, rectH - 1));
+          ctx.globalAlpha = alpha;
+          let from = note.time;
+          for (;;) {
+            const next = i + 1 < bends.length && bends[i + 1].time < end ? bends[i + 1].time : end;
+            const xa = from * pxPerSec - scrollX;
+            const xb = next * pxPerSec - scrollX;
+            ctx.fillRect(xa, y - v * noteH, Math.max(1, xb - xa + 0.5), rectH);
+            if (next >= end) break;
+            i++;
+            from = next;
+            v = bends[i].value;
+          }
+          if (isActive) {
+            ctx.globalAlpha = 0.5;
+            ctx.strokeStyle = "#ffffff";
+            ctx.strokeRect(x, y, noteW, rectH);
+          }
+          continue;
+        }
+      }
 
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = color;
       const r = Math.min(2, rectH / 2);
       if (typeof ctx.roundRect === "function") {
         ctx.beginPath();
@@ -1603,9 +1850,46 @@ function PianoRoll({
     }
     ctx.globalAlpha = 1;
 
+    /* drum names, pinned to the left edge over the hits */
+    if (layout.drumKeys.length > 0) {
+      ctx.save();
+      const size = Math.min(11, layout.drumRowH - 1);
+      ctx.font = `${size}px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif`;
+      ctx.textBaseline = "middle";
+      const names = layout.drumKeys.map((k) => drumName(k));
+      const labelW = Math.min(150, Math.max(...names.map((n) => ctx.measureText(n).width)) + 12);
+      ctx.globalAlpha = 0.82;
+      ctx.fillStyle = rollBg;
+      ctx.fillRect(0, layout.drumTop + 1, labelW, layout.drumKeys.length * layout.drumRowH - 1);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = rulerText;
+      names.forEach((name, i) => {
+        fitText(ctx, name, 6, layout.drumTop + (i + 0.5) * layout.drumRowH, labelW - 10);
+      });
+      ctx.restore();
+    }
+
     /* Playhead is drawn by a DOM overlay (see effect below) so it can
      * animate smoothly at 60fps without re-running this whole render. */
-  }, [position, viewportW, song, dark, scrollX, pxPerSec, muted, padded]);
+  }, [
+    position,
+    viewportW,
+    song,
+    dark,
+    scrollX,
+    pxPerSec,
+    muted,
+    padded,
+    layout,
+    lanes.bends,
+    showChords,
+    showLyrics,
+    chordList,
+    chordsEstimated,
+    chordsPending,
+    lyrics,
+    t,
+  ]);
 
   /* Playhead overlay — updated via rAF reading live position. */
   useEffect(() => {
@@ -1641,13 +1925,21 @@ function PianoRoll({
     ctx.clearRect(0, 0, w, h);
 
     const pxPerSecMini = w / Math.max(0.1, song.duration);
-    const noteH = h / padded.range;
+    // Drums along the bottom edge, pitched notes above.
+    const drumBand = layout.drumKeys.length > 0 ? 6 : 0;
+    const noteH = (h - drumBand) / padded.range;
 
     for (const note of song.notes) {
       const isMuted = muted[note.trackIndex];
       const x = note.time * pxPerSecMini;
+      if (isDrum[note.trackIndex]) {
+        ctx.globalAlpha = isMuted ? 0.16 : 0.45;
+        ctx.fillStyle = isMuted ? (dark ? "#3a3c40" : "#bdc0c5") : song.tracks[note.trackIndex].color;
+        ctx.fillRect(x, h - drumBand + 1, 1, drumBand - 1);
+        continue;
+      }
       const noteW = Math.max(1, note.duration * pxPerSecMini);
-      const y = h - (note.midi - padded.lo + 1) * noteH;
+      const y = h - drumBand - (note.midi - padded.lo + 1) * noteH;
       const rectH = Math.max(1, noteH);
       ctx.globalAlpha = isMuted ? 0.16 : 0.6;
       ctx.fillStyle = isMuted
@@ -1658,7 +1950,7 @@ function PianoRoll({
       ctx.fillRect(x, y, noteW, rectH);
     }
     ctx.globalAlpha = 1;
-  }, [overviewW, song, muted, padded, dark]);
+  }, [overviewW, song, muted, padded, dark, isDrum, layout.drumKeys.length]);
 
   /* viewport window & playhead on overview */
   const overviewWindow = useMemo(() => {
@@ -1686,22 +1978,35 @@ function PianoRoll({
     [scrollX, pxPerSec, onSeek, song.duration]
   );
 
-  /** Where a pointer is, in beats and keys (rows are whole keys). */
+  /**
+   * Where a pointer is, in beats and keys: a key row in the pitched area or
+   * a drum row below it. `pane` keeps a drag in the pane it started in.
+   */
   const pointAt = useCallback(
-    (clientX: number, clientY: number) => {
+    (clientX: number, clientY: number, pane?: Pane) => {
       const el = mainRef.current;
       if (!el) return null;
       const rect = el.getBoundingClientRect();
       const x = clientX - rect.left;
       const y = clientY - rect.top;
       const t = Math.max(0, Math.min(song.duration, (scrollX + x) / pxPerSec));
-      const noteH = ROLL_NOTES_H / padded.range;
-      const row = Math.floor((RULER_H + ROLL_NOTES_H - y) / noteH);
+      const beat = timeToBeat(tempoMap, t);
+      const inDrums = layout.drumKeys.length > 0 && (pane ? pane === "drums" : y >= layout.drumTop);
+      if (inDrums) {
+        const row = Math.floor((y - layout.drumTop) / layout.drumRowH);
+        const midi = layout.drumKeys[Math.max(0, Math.min(layout.drumKeys.length - 1, row))];
+        return { y, beat, midi, pane: "drums" as Pane, inNotes: y >= layout.drumTop };
+      }
+      const noteH = layout.notesH / padded.range;
+      const row = noteH > 0 ? Math.floor((layout.notesTop + layout.notesH - y) / noteH) : 0;
       const midi = Math.max(0, Math.min(127, padded.lo + Math.max(0, Math.min(padded.range - 1, row))));
-      return { y, beat: timeToBeat(tempoMap, t), midi };
+      return { y, beat, midi, pane: "keys" as Pane, inNotes: y >= layout.notesTop && layout.notesH > 0 };
     },
-    [scrollX, pxPerSec, song.duration, padded, tempoMap]
+    [scrollX, pxPerSec, song.duration, padded, tempoMap, layout]
   );
+
+  /** Whether a note belongs to the pane a selection was drawn in. */
+  const inPane = (trackIndex: number, pane: Pane) => isDrum[trackIndex] === (pane === "drums");
 
   const copySelection = () => {
     if (!sel || !onCopy) return;
@@ -1711,7 +2016,7 @@ function PianoRoll({
     for (const n of song.notes) {
       if (n.time < t0 - 1e-6) continue;
       if (n.time >= t1 - 1e-6) break;
-      if (n.midi < sel.lo || n.midi > sel.hi) continue;
+      if (n.midi < sel.lo || n.midi > sel.hi || !inPane(n.trackIndex, sel.pane)) continue;
       used.set(n.trackIndex, (used.get(n.trackIndex) ?? 0) + 1);
     }
     if (used.size === 0) return;
@@ -1756,7 +2061,7 @@ function PianoRoll({
     for (const n of song.notes) {
       if (n.time < t0 - 1e-6) continue;
       if (n.time >= t1 - 1e-6) break;
-      if (n.midi < sel.lo || n.midi > sel.hi) continue;
+      if (n.midi < sel.lo || n.midi > sel.hi || !inPane(n.trackIndex, sel.pane)) continue;
       const nb = timeToBeat(tempoMap, n.time);
       notes.push({
         track: n.trackIndex,
@@ -1782,16 +2087,26 @@ function PianoRoll({
 
   const selBox = useMemo(() => {
     if (!sel) return null;
-    const noteH = ROLL_NOTES_H / padded.range;
     const x0 = beatToTime(tempoMap, sel.b0) * pxPerSec - scrollX;
     const x1 = beatToTime(tempoMap, sel.b1) * pxPerSec - scrollX;
+    const box = { left: x0, width: Math.max(2, x1 - x0) };
+    if (sel.pane === "drums") {
+      // Rows run from the highest key down.
+      const top = layout.drumKeys.indexOf(sel.hi);
+      const bottom = layout.drumKeys.indexOf(sel.lo);
+      return {
+        ...box,
+        top: layout.drumTop + top * layout.drumRowH,
+        height: (bottom - top + 1) * layout.drumRowH,
+      };
+    }
+    const noteH = layout.notesH / padded.range;
     return {
-      left: x0,
-      width: Math.max(2, x1 - x0),
-      top: RULER_H + ROLL_NOTES_H - (sel.hi - padded.lo + 1) * noteH,
+      ...box,
+      top: layout.notesTop + layout.notesH - (sel.hi - padded.lo + 1) * noteH,
       height: (sel.hi - sel.lo + 1) * noteH,
     };
-  }, [sel, tempoMap, pxPerSec, scrollX, padded]);
+  }, [sel, tempoMap, pxPerSec, scrollX, padded, layout]);
 
   const draggingRef = useRef<null | "main" | "select" | "ov-scrub" | "ov-pan">(null);
   const panOriginRef = useRef({ x: 0, scroll: 0 });
@@ -1804,14 +2119,14 @@ function PianoRoll({
         seekFromMain(e.clientX);
       } else if (mode === "select") {
         const d = selDragRef.current;
-        const p = pointAt(e.clientX, e.clientY);
+        const p = d && pointAt(e.clientX, e.clientY, d.pane);
         if (!d || !p) return;
         if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;
         d.moved = true;
         const total = Math.max(1, Math.ceil(tempoMap.totalBeats - 1e-6));
         const b0 = Math.max(0, Math.min(total - 1, Math.floor(Math.min(d.beat, p.beat))));
         const b1 = Math.max(b0 + 1, Math.min(total, Math.ceil(Math.max(d.beat, p.beat))));
-        setSel({ b0, b1, lo: Math.min(d.midi, p.midi), hi: Math.max(d.midi, p.midi) });
+        setSel({ b0, b1, lo: Math.min(d.midi, p.midi), hi: Math.max(d.midi, p.midi), pane: d.pane });
       } else if (mode === "ov-scrub") {
         const el = overviewWrapRef.current;
         if (!el) return;
@@ -1882,6 +2197,7 @@ function PianoRoll({
             textTransform: "uppercase",
             letterSpacing: "0.1em",
             color: "var(--text-faint)",
+            whiteSpace: "nowrap",
           }}
         >
           Piano Roll
@@ -1890,6 +2206,42 @@ function PianoRoll({
           <span className="roll-hint">{t.roll.hint}</span>
         )}
         <div style={{ flex: 1 }} />
+        <div className="roll-lane-toggles">
+          {(song.chords.length > 0 || estimateChords) && (
+            <button
+              className={`toggle-chip${lanes.chords ? " on" : ""}`}
+              onClick={() => toggleLane("chords")}
+              title={t.roll.chordsTitle}
+            >
+              {t.roll.chords}
+            </button>
+          )}
+          {lyrics.length > 0 && (
+            <button
+              className={`toggle-chip${lanes.lyrics ? " on" : ""}`}
+              onClick={() => toggleLane("lyrics")}
+              title={t.roll.lyricsTitle}
+            >
+              {t.roll.lyrics}
+            </button>
+          )}
+          {hasBends && (
+            <button
+              className={`toggle-chip${lanes.bends ? " on" : ""}`}
+              onClick={() => toggleLane("bends")}
+              title={t.roll.bendsTitle}
+            >
+              {t.roll.bends}
+            </button>
+          )}
+          <button
+            className={`toggle-chip${lanes.controllers ? " on" : ""}`}
+            onClick={() => toggleLane("controllers")}
+            title={t.roll.lanesTitle}
+          >
+            {t.roll.lanes}
+          </button>
+        </div>
         <button
           className={`toggle-chip${follow ? " on" : ""}`}
           onClick={() => setFollow((f) => !f)}
@@ -1919,38 +2271,55 @@ function PianoRoll({
         </button>
       </div>
 
-      <div
-        ref={mainRef}
-        className="roll-main"
-        onPointerDown={(e) => {
-          (e.target as Element).setPointerCapture?.(e.pointerId);
-          const p = onAttach || onCopy ? pointAt(e.clientX, e.clientY) : null;
-          if (p && p.y >= RULER_H) {
-            selDragRef.current = { beat: p.beat, midi: p.midi, x: e.clientX, y: e.clientY, moved: false };
-            draggingRef.current = "select";
-            return;
-          }
-          draggingRef.current = "main";
-          seekFromMain(e.clientX);
-        }}
-      >
-        <canvas ref={canvasRef} />
-        <div ref={playheadRef} className="roll-playhead" />
-        {selBox && (
-          <div className="roll-selection" style={selBox}>
-            <div className="roll-selection-actions" onPointerDown={(e) => e.stopPropagation()}>
-              {onCopy && (
-                <button className="roll-selection-btn is-quiet" onClick={copySelection} title={t.roll.copyTitle}>
-                  {t.roll.copy}
-                </button>
-              )}
-              {onAttach && (
-                <button className="roll-selection-btn" onClick={attachSelection} title={t.roll.attachTitle}>
-                  {t.roll.attach}
-                </button>
-              )}
+      <div ref={stageRef}>
+        <div
+          ref={mainRef}
+          className="roll-main"
+          style={{ height: layout.totalH }}
+          onPointerDown={(e) => {
+            (e.target as Element).setPointerCapture?.(e.pointerId);
+            const p = onAttach || onCopy ? pointAt(e.clientX, e.clientY) : null;
+            if (p && p.inNotes) {
+              selDragRef.current = { beat: p.beat, midi: p.midi, pane: p.pane, x: e.clientX, y: e.clientY, moved: false };
+              draggingRef.current = "select";
+              return;
+            }
+            draggingRef.current = "main";
+            seekFromMain(e.clientX);
+          }}
+        >
+          <canvas ref={canvasRef} />
+          <div ref={playheadRef} className="roll-playhead" style={{ height: layout.totalH - PLAYHEAD_TOP }} />
+          {selBox && (
+            <div className="roll-selection" style={selBox}>
+              <div className="roll-selection-actions" onPointerDown={(e) => e.stopPropagation()}>
+                {onCopy && (
+                  <button className="roll-selection-btn is-quiet" onClick={copySelection} title={t.roll.copyTitle}>
+                    {t.roll.copy}
+                  </button>
+                )}
+                {onAttach && (
+                  <button className="roll-selection-btn" onClick={attachSelection} title={t.roll.attachTitle}>
+                    {t.roll.attach}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
+        </div>
+
+        {lanes.controllers && (
+          <ControllerLane
+            song={song}
+            muted={muted}
+            scrollX={scrollX}
+            pxPerSec={pxPerSec}
+            viewportW={viewportW}
+            dark={dark}
+            barTimes={barTimes}
+            getLivePosition={getLivePosition}
+            onSeekTime={(t) => onSeek(t / Math.max(0.001, song.duration))}
+          />
         )}
       </div>
 
@@ -2009,7 +2378,7 @@ function PianoRoll({
 
 /* ---------- view switcher ---------- */
 
-type PrimaryView = "roll" | "score";
+type PrimaryView = "roll" | "score" | "events";
 
 function ViewSwitcher({
   primary,
@@ -2024,6 +2393,8 @@ function ViewSwitcher({
   getLivePosition,
   onAttach,
   onCopy,
+  estimateChords,
+  buffer,
 }: {
   primary: PrimaryView;
   onPrimaryChange: (v: PrimaryView) => void;
@@ -2037,6 +2408,9 @@ function ViewSwitcher({
   getLivePosition: () => number;
   onAttach?: (sel: RollSelectionDraft) => void;
   onCopy?: (clip: RollClipDraft) => void;
+  estimateChords?: () => Promise<ChordAt[]>;
+  /** The file on screen, for the event list. */
+  buffer: ArrayBuffer | null;
 }) {
   const { t } = useI18n();
   return (
@@ -2054,6 +2428,14 @@ function ViewSwitcher({
         >
           Score
         </button>
+        {buffer && (
+          <button
+            className={`view-tab${primary === "events" ? " active" : ""}`}
+            onClick={() => onPrimaryChange("events")}
+          >
+            Events
+          </button>
+        )}
         <div style={{ flex: 1 }} />
         <button
           className={`view-toggle${showKeys ? " on" : ""}`}
@@ -2073,6 +2455,16 @@ function ViewSwitcher({
           getLivePosition={getLivePosition}
           onAttach={onAttach}
           onCopy={onCopy}
+          estimateChords={estimateChords}
+        />
+      )}
+      {primary === "events" && buffer && (
+        <EventList
+          song={song}
+          buffer={buffer}
+          position={position}
+          isPlaying={isPlaying}
+          onSeekTime={(t) => onSeek(t / Math.max(0.001, song.duration))}
         />
       )}
       {primary === "score" && (

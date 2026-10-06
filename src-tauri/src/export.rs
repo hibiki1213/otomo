@@ -1,6 +1,7 @@
 //! Sheet music out of the library: a song, or some of its tracks, as
 //! MusicXML. The notation itself is `otomo_score::to_musicxml`; the export
-//! dialog engraves the same text into PDF pages (see `pdf.rs`).
+//! dialog engraves the same text into PDF pages (see `pdf.rs`). Also the
+//! chord symbols the piano roll's chord lane shows when a file has none.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -73,6 +74,44 @@ pub async fn score_musicxml(library: State<'_, SongLibrary>, request: ScoreReque
         max_bars: request.max_bars,
     };
     otomo_score::to_musicxml(&score, &options).map_err(fail)
+}
+
+/// A chord symbol on the piano roll's timeline.
+#[derive(Serialize)]
+pub struct ChordAt {
+    /// Seconds from the start, where the harmony begins.
+    time: f64,
+    /// "F", "Bbmaj7", "G7/B"; "—" for silence, "?" for nothing nameable.
+    name: String,
+}
+
+/// The harmony of the whole song beat by beat, read the way Claude's
+/// `harmony` tool reads it.
+#[tauri::command]
+pub async fn score_chords(
+    library: State<'_, SongLibrary>,
+    id: i64,
+    staged: Option<bool>,
+) -> Result<Vec<ChordAt>, String> {
+    let (_, bytes) = library.source(id, staged.unwrap_or(false))?;
+    // Every beat weighs every note: a long orchestral score takes a moment.
+    tauri::async_runtime::spawn_blocking(move || {
+        let score = otomo_score::Score::parse(&bytes)?;
+        let bars = score.bars();
+        let tracks: Vec<usize> = (0..score.tracks.len()).collect();
+        Ok(otomo_score::analyse_harmony(&score, &bars, &tracks, 1, bars.count)
+            .into_iter()
+            .map(|chord| {
+                // The beat as `analyse` counts it: the bar split by its numerator.
+                let beats = u32::from(bars.time_signature(chord.bar).0.max(1));
+                let beat_ticks = (bars.bar_ticks(chord.bar) / beats).max(1);
+                let tick = bars.bar_start(chord.bar) + ((chord.beat - 1.0) * f64::from(beat_ticks)).round() as u32;
+                ChordAt { time: score.tick_seconds(tick), name: chord.name }
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Save text the export dialog made (a MusicXML file) where the person chose.

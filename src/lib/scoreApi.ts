@@ -45,3 +45,15 @@ export const writePdf = (path: string, engraved: Engraved) =>
 export function fileStem(text: string): string {
   return text.replace(/[/\\:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim() || "Score";
 }
+
+/** A chord symbol on the timeline (see `score_chords` in export.rs). */
+export interface ChordAt {
+  /** Seconds from the start. */
+  time: number;
+  /** "F", "Bbmaj7", "G7/B"; "—" for silence, "?" when nothing fits. */
+  name: string;
+}
+
+/** The song's harmony beat by beat, as Claude's `harmony` tool reads it. */
+export const scoreChords = (id: number, staged: boolean) =>
+  invoke<ChordAt[]>("score_chords", { id, staged });

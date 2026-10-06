@@ -37,27 +37,39 @@ export default function Sidebar({
   library,
   playing,
   onExport,
+  onHistory,
 }: {
   library: SongLibrary;
   /** Whether the current song is sounding, for the row indicator. */
   playing: boolean;
   onExport: (song: SongRecord) => void;
+  /** Undo (back) or redo a song's last change. */
+  onHistory: (songId: number, back: boolean) => void;
 }) {
   const { t } = useI18n();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
 
+  const menuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
-    window.addEventListener("click", close);
-    window.addEventListener("blur", close);
+    // A press outside closes it — not a click: on a Mac the release of the
+    // secondary click that opened the menu can arrive as a click and would
+    // close it the moment it appears.
+    const outside = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) close();
+    };
     const esc = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("pointerdown", outside, true);
     window.addEventListener("keydown", esc);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
     return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("blur", close);
+      window.removeEventListener("pointerdown", outside, true);
       window.removeEventListener("keydown", esc);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
     };
   }, [menu]);
 
@@ -149,11 +161,7 @@ export default function Sidebar({
       <LanguageSelect />
 
       {menu && (
-        <div
-          className="context-menu"
-          style={{ left: menu.x, top: menu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div ref={menuRef} className="context-menu" style={{ left: menu.x, top: menu.y }}>
           <button
             onClick={() => {
               setRenaming(menu.song.id);
@@ -173,11 +181,21 @@ export default function Sidebar({
           {menu.song.canUndo && (
             <button
               onClick={() => {
-                void library.undoEdit(menu.song.id);
+                onHistory(menu.song.id, true);
                 setMenu(null);
               }}
             >
               {t.sidebar.undoEdit}
+            </button>
+          )}
+          {menu.song.canRedo && (
+            <button
+              onClick={() => {
+                onHistory(menu.song.id, false);
+                setMenu(null);
+              }}
+            >
+              {t.sidebar.redoEdit}
             </button>
           )}
           <button

@@ -92,7 +92,7 @@ pub async fn songs_paste(library: State<'_, SongLibrary>, request: PasteRequest)
         library.stage(request.to_id, &data, &change)?;
         library.record(request.to_id)?
     } else {
-        library.commit(request.to_id, &data)?
+        library.commit(request.to_id, &data, "paste", notes)?
     };
     Ok(PasteResult { record, staged, at_seconds: score.tick_seconds(at), notes })
 }

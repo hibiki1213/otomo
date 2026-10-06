@@ -46,8 +46,10 @@ pub struct SongRecord {
     pub last_played: Option<i64>,
     pub play_count: i64,
     pub favorite: bool,
-    /// True when applying an edit replaced the song, so it can be undone once.
+    /// An earlier version to step back to (⌘Z).
     pub can_undo: bool,
+    /// A version that was undone, to step forward to again (⌘⇧Z).
+    pub can_redo: bool,
 }
 
 const SCHEMA: &str = "
@@ -57,6 +59,7 @@ CREATE TABLE IF NOT EXISTS songs (
     file_name   TEXT    NOT NULL,
     hash        TEXT    NOT NULL UNIQUE,
     previous_hash TEXT,
+    version     INTEGER,
     bytes       INTEGER NOT NULL,
     source_path TEXT,
     duration    REAL    NOT NULL DEFAULT 0,
@@ -76,6 +79,20 @@ CREATE TABLE IF NOT EXISTS song_instruments (
     label       TEXT    NOT NULL,
     PRIMARY KEY (song_id, track)
 );
+-- Every version a song has had, oldest first: what undo and redo step
+-- through. songs.version is the one in use, and songs.hash its file.
+CREATE TABLE IF NOT EXISTS song_versions (
+    id          INTEGER PRIMARY KEY,
+    song_id     INTEGER NOT NULL,
+    hash        TEXT    NOT NULL,
+    -- What made this version: 'original', 'edit' (from before the history
+    -- was kept), 'claude' (applied edits) or 'paste'.
+    kind        TEXT    NOT NULL,
+    -- How much: edits applied, notes pasted.
+    count       INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS song_versions_song ON song_versions (song_id, id);
 -- SFZ files the user picked from disk, so they can be offered again (and
 -- named to Claude) like the instruments of a downloaded library.
 CREATE TABLE IF NOT EXISTS user_instruments (
@@ -121,6 +138,8 @@ impl SongLibrary {
         // Libraries made before applied edits existed have no room to
         // remember what a song looked like beforehand; give them one.
         let _ = db.execute("ALTER TABLE songs ADD COLUMN previous_hash TEXT", []);
+        // …and before the history, a place to say which version is in use.
+        let _ = db.execute("ALTER TABLE songs ADD COLUMN version INTEGER", []);
         Ok(Self { db: Mutex::new(db), dir, pending: root.join("pending") })
     }
 
@@ -263,9 +282,10 @@ impl SongLibrary {
         self.pending_path(id).exists()
     }
 
-    /// Make `data` the song's saved version, keeping the one it replaces so
-    /// the change can be undone.
-    pub(crate) fn commit(&self, id: i64, data: &[u8]) -> Result<SongRecord, String> {
+    /// Make `data` the song's saved version, as a new step in its history:
+    /// what was undone before it can no longer be redone, as in any editor.
+    /// `kind` and `count` say what made it, for "Undid: …".
+    pub(crate) fn commit(&self, id: i64, data: &[u8], kind: &str, count: usize) -> Result<SongRecord, String> {
         if data.is_empty() {
             return Err(tr!("編集後のファイルが空です", "The edited file is empty"));
         }
@@ -276,16 +296,67 @@ impl SongLibrary {
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
 
         let db = self.lock()?;
-        // Duration and track count are what the old version measured; opening
-        // the new one replaces them.
+        let current = ensure_history(&db, id)?;
+        db.execute("DELETE FROM song_versions WHERE song_id = ?1 AND id > ?2", params![id, current])
+            .map_err(|e| e.to_string())?;
         db.execute(
-            "UPDATE songs
-             SET previous_hash = hash, hash = ?2, bytes = ?3, duration = 0, track_count = 0
-             WHERE id = ?1",
-            params![id, hash, data.len() as i64],
+            "INSERT INTO song_versions (song_id, hash, kind, count, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, hash, kind, count as i64, now()],
+        )
+        .map_err(|e| e.to_string())?;
+        let version = db.last_insert_rowid();
+        use_version(&db, id, version, &hash, data.len() as i64)?;
+        // A long session's history is kept to the last HISTORY_LIMIT steps.
+        db.execute(
+            "DELETE FROM song_versions WHERE song_id = ?1 AND id NOT IN
+               (SELECT id FROM song_versions WHERE song_id = ?1 ORDER BY id DESC LIMIT ?2)",
+            params![id, HISTORY_LIMIT],
         )
         .map_err(|e| e.to_string())?;
         get(&db, id)
+    }
+
+    /// Step one version back (undo) or forward (redo). Returns the song and
+    /// what the step took back or put back.
+    pub(crate) fn step(&self, id: i64, back: bool) -> Result<(SongRecord, Step), String> {
+        if self.has_pending(id) {
+            return Err(tr!(
+                "Claude の未適用の編集があります。先に適用か破棄をしてください。",
+                "Claude has pending edits on this song. Apply or discard them first."
+            ));
+        }
+        let db = self.lock()?;
+        let current = ensure_history(&db, id)?;
+        let sql = if back {
+            "SELECT id, hash FROM song_versions WHERE song_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT 1"
+        } else {
+            "SELECT id, hash FROM song_versions WHERE song_id = ?1 AND id > ?2 ORDER BY id ASC LIMIT 1"
+        };
+        let (target, hash): (i64, String) = db
+            .query_row(sql, params![id, current], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                if back {
+                    tr!("これ以上戻せません", "Nothing to undo")
+                } else {
+                    tr!("やり直せる操作はありません", "Nothing to redo")
+                }
+            })?;
+        // Undo takes back what made the current version; redo puts back
+        // what made the next one.
+        let (kind, count): (String, i64) = db
+            .query_row(
+                "SELECT kind, count FROM song_versions WHERE id = ?1",
+                params![if back { current } else { target }],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| e.to_string())?;
+        let bytes = std::fs::metadata(self.path_for(&hash))
+            .map(|m| m.len() as i64)
+            .map_err(|_| tr!("その版のファイルが見つかりません", "That version's file is missing"))?;
+        use_version(&db, id, target, &hash, bytes)?;
+        Ok((get(&db, id)?, Step { kind, count }))
     }
 
     /// Add a change to the song's staged edit, the way the MCP server stages
@@ -328,8 +399,76 @@ impl SongLibrary {
     }
 }
 
+/// How many versions of a song are kept for undo.
+const HISTORY_LIMIT: i64 = 100;
+
+/// What an undo or redo stepped over, for the UI to name it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Step {
+    kind: String,
+    count: i64,
+}
+
+/// The song's current version in the history, starting the history the
+/// first time it is needed: with the version an older build's "apply" kept
+/// aside, if there is one, then the current one.
+fn ensure_history(db: &Connection, id: i64) -> Result<i64, String> {
+    let (hash, previous, version): (String, Option<String>, Option<i64>) = db
+        .query_row("SELECT hash, previous_hash, version FROM songs WHERE id = ?1", params![id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .map_err(|e| e.to_string())?;
+    if let Some(v) = version {
+        let known: bool = db
+            .query_row("SELECT EXISTS (SELECT 1 FROM song_versions WHERE id = ?1 AND song_id = ?2)", params![v, id], |r| {
+                r.get(0)
+            })
+            .map_err(|e| e.to_string())?;
+        if known {
+            return Ok(v);
+        }
+    }
+    let insert = |hash: &str, kind: &str| -> Result<i64, String> {
+        db.execute(
+            "INSERT INTO song_versions (song_id, hash, kind, count, created_at) VALUES (?1, ?2, ?3, 0, ?4)",
+            params![id, hash, kind, now()],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(db.last_insert_rowid())
+    };
+    if let Some(previous) = &previous {
+        insert(previous, "original")?;
+    }
+    let current = insert(&hash, if previous.is_some() { "edit" } else { "original" })?;
+    db.execute("UPDATE songs SET version = ?2 WHERE id = ?1", params![id, current]).map_err(|e| e.to_string())?;
+    Ok(current)
+}
+
+/// Point the song at a version. Duration and track count are what the old
+/// version measured; opening the song again fills them in.
+fn use_version(db: &Connection, id: i64, version: i64, hash: &str, bytes: i64) -> Result<(), String> {
+    db.execute(
+        "UPDATE songs
+         SET hash = ?2, bytes = ?3, version = ?4, previous_hash = NULL, duration = 0, track_count = 0
+         WHERE id = ?1",
+        params![id, hash, bytes, version],
+    )
+    .map(|_| ())
+    .map_err(|e| {
+        if e.to_string().contains("UNIQUE") {
+            tr!("同じ内容の曲がライブラリに別にあるため切り替えられません", "Another song in the library has exactly this content")
+        } else {
+            e.to_string()
+        }
+    })
+}
+
 const COLUMNS: &str = "id, title, file_name, bytes, source_path, duration, track_count,
-                       added_at, last_played, play_count, favorite, previous_hash";
+                       added_at, last_played, play_count, favorite,
+                       EXISTS (SELECT 1 FROM song_versions v WHERE v.song_id = songs.id AND v.id < songs.version)
+                         OR (songs.version IS NULL AND previous_hash IS NOT NULL),
+                       EXISTS (SELECT 1 FROM song_versions v WHERE v.song_id = songs.id AND v.id > songs.version)";
 
 fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SongRecord> {
     Ok(SongRecord {
@@ -344,7 +483,8 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SongRecord> {
         last_played: r.get(8)?,
         play_count: r.get(9)?,
         favorite: r.get::<_, i64>(10)? != 0,
-        can_undo: r.get::<_, Option<String>>(11)?.is_some(),
+        can_undo: r.get::<_, bool>(11)?,
+        can_redo: r.get::<_, bool>(12)?,
     })
 }
 
@@ -415,7 +555,8 @@ pub fn songs_pending_data(library: State<'_, SongLibrary>, id: i64) -> Result<Re
 pub fn songs_apply_pending(library: State<'_, SongLibrary>, id: i64) -> Result<SongRecord, String> {
     let data = std::fs::read(library.pending_path(id))
         .map_err(|_| tr!("この曲に未適用の編集はありません", "This song has no pending edits"))?;
-    let record = library.commit(id, &data)?;
+    let changes = pending_changes(&library, id).len();
+    let record = library.commit(id, &data, "claude", changes)?;
     discard_pending(&library, id);
     Ok(record)
 }
@@ -427,32 +568,40 @@ pub fn songs_discard_pending(library: State<'_, SongLibrary>, id: i64) -> Result
     Ok(())
 }
 
+/// What a staged edit did, from its note.
+fn pending_changes(library: &SongLibrary, id: i64) -> Vec<String> {
+    std::fs::read_to_string(library.pending.join(format!("{id}.json")))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|note| note.get("changes").and_then(|c| c.as_array()).cloned())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+        .unwrap_or_default()
+}
+
 fn discard_pending(library: &SongLibrary, id: i64) {
     let _ = std::fs::remove_file(library.pending_path(id));
     let _ = std::fs::remove_file(library.pending.join(format!("{id}.json")));
 }
 
-/// Put back the version an applied edit replaced.
+/// Undo: the song as it was before its last change (⌘Z).
 #[tauri::command]
-pub fn songs_undo_apply(library: State<'_, SongLibrary>, id: i64) -> Result<SongRecord, String> {
-    let db = library.lock()?;
-    let previous: Option<String> = db
-        .query_row("SELECT previous_hash FROM songs WHERE id = ?1", params![id], |r| r.get(0))
-        .optional()
-        .map_err(|e| e.to_string())?
-        .flatten();
-    let previous = previous.ok_or_else(|| tr!("この曲に戻せる版はありません", "This song has no earlier version to go back to"))?;
-    let bytes = std::fs::metadata(library.path_for(&previous))
-        .map(|m| m.len() as i64)
-        .map_err(|_| tr!("前の版のファイルが見つかりません", "The earlier version's file is missing"))?;
-    db.execute(
-        "UPDATE songs
-         SET hash = ?2, previous_hash = NULL, bytes = ?3, duration = 0, track_count = 0
-         WHERE id = ?1",
-        params![id, previous, bytes],
-    )
-    .map_err(|e| e.to_string())?;
-    get(&db, id)
+pub fn songs_undo(library: State<'_, SongLibrary>, id: i64) -> Result<Stepped, String> {
+    let (record, step) = library.step(id, true)?;
+    Ok(Stepped { record, step })
+}
+
+/// Redo: put back the change undone last (⌘⇧Z).
+#[tauri::command]
+pub fn songs_redo(library: State<'_, SongLibrary>, id: i64) -> Result<Stepped, String> {
+    let (record, step) = library.step(id, false)?;
+    Ok(Stepped { record, step })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stepped {
+    record: SongRecord,
+    step: Step,
 }
 
 /// The library, most recently played first. `query` filters by title or file
@@ -593,6 +742,7 @@ pub fn songs_remove(library: State<'_, SongLibrary>, id: i64) -> Result<(), Stri
         .map_err(|e| e.to_string())?;
     db.execute("DELETE FROM songs WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
     db.execute("DELETE FROM song_instruments WHERE song_id = ?1", params![id]).map_err(|e| e.to_string())?;
+    db.execute("DELETE FROM song_versions WHERE song_id = ?1", params![id]).map_err(|e| e.to_string())?;
     drop(db);
     if let Some(hash) = hash {
         // The row is gone either way; a leftover file is harmless.
@@ -637,6 +787,81 @@ mod tests {
         assert!(lib.read(9999).is_err());
         assert!(lib.import(b"", "empty.mid", None).is_err());
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn edits_can_be_undone_and_redone_step_by_step() {
+        let dir = std::env::temp_dir().join(format!("otomo-songs-hist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let lib = library(&dir);
+        let song = lib.import(b"MThd-v1", "Song.mid", None).unwrap();
+        assert!(!song.can_undo && !song.can_redo);
+
+        lib.commit(song.id, b"MThd-v2", "paste", 12).unwrap();
+        let after = lib.commit(song.id, b"MThd-v3", "claude", 2).unwrap();
+        assert!(after.can_undo && !after.can_redo);
+        assert_eq!(lib.read(song.id).unwrap(), b"MThd-v3");
+
+        // Back twice, each step naming what it took back.
+        let (rec, step) = lib.step(song.id, true).unwrap();
+        assert_eq!((step.kind.as_str(), step.count), ("claude", 2));
+        assert!(rec.can_undo && rec.can_redo);
+        assert_eq!(lib.read(song.id).unwrap(), b"MThd-v2");
+        let (rec, step) = lib.step(song.id, true).unwrap();
+        assert_eq!((step.kind.as_str(), step.count), ("paste", 12));
+        assert!(!rec.can_undo);
+        assert_eq!(lib.read(song.id).unwrap(), b"MThd-v1");
+        assert!(lib.step(song.id, true).is_err(), "nothing before the original");
+
+        // Forward again, naming what it put back.
+        let (_, step) = lib.step(song.id, false).unwrap();
+        assert_eq!(step.kind, "paste");
+        assert_eq!(lib.read(song.id).unwrap(), b"MThd-v2");
+
+        // A new edit after an undo drops what could have been redone.
+        let rec = lib.commit(song.id, b"MThd-v4", "paste", 3).unwrap();
+        assert!(!rec.can_redo);
+        assert!(lib.step(song.id, false).is_err());
+        lib.step(song.id, true).unwrap();
+        assert_eq!(lib.read(song.id).unwrap(), b"MThd-v2");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_edit_applied_by_an_older_build_can_still_be_undone() {
+        let dir = std::env::temp_dir().join(format!("otomo-songs-old-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let lib = library(&dir);
+        let old = lib.import(b"MThd-old", "Old.mid", None).unwrap();
+        let new = lib.import(b"MThd-new", "Tmp.mid", None).unwrap();
+        // What the old "apply" left: the new file in use, the old one aside.
+        {
+            let db = lib.lock().unwrap();
+            let hash = |id: i64| -> String { db.query_row("SELECT hash FROM songs WHERE id = ?1", [id], |r| r.get(0)).unwrap() };
+            let (h_old, h_new) = (hash(old.id), hash(new.id));
+            db.execute("DELETE FROM songs WHERE id = ?1", [new.id]).unwrap();
+            db.execute("UPDATE songs SET hash = ?2, previous_hash = ?3 WHERE id = ?1", params![old.id, h_new, h_old])
+                .unwrap();
+        }
+        assert!(lib.record(old.id).unwrap().can_undo);
+        lib.step(old.id, true).unwrap();
+        assert_eq!(lib.read(old.id).unwrap(), b"MThd-old");
+        lib.step(old.id, false).unwrap();
+        assert_eq!(lib.read(old.id).unwrap(), b"MThd-new");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn undo_waits_for_claudes_pending_edits() {
+        let dir = std::env::temp_dir().join(format!("otomo-songs-pend-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let lib = library(&dir);
+        let song = lib.import(b"MThd-1", "S.mid", None).unwrap();
+        lib.commit(song.id, b"MThd-2", "paste", 1).unwrap();
+        lib.stage(song.id, b"MThd-3", "Claude did something").unwrap();
+        assert!(lib.step(song.id, true).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

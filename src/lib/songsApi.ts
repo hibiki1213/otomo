@@ -18,8 +18,10 @@ export interface SongRecord {
   lastPlayed: number | null;
   playCount: number;
   favorite: boolean;
-  /** An applied edit replaced this song, so it can be put back once. */
+  /** There is an earlier version to step back to (⌘Z). */
   canUndo: boolean;
+  /** A version was undone and can be put back (⌘⇧Z). */
+  canRedo: boolean;
 }
 
 /** An edit the MCP server staged, waiting for approval. */
@@ -70,8 +72,21 @@ export const applyPending = (id: number) =>
 export const discardPending = (id: number) =>
   invoke<void>("songs_discard_pending", { id });
 
-export const undoApply = (id: number) =>
-  invoke<SongRecord>("songs_undo_apply", { id });
+/** What an undo or redo stepped over. */
+export interface HistoryStep {
+  /** "paste", "claude", "edit" (before history was kept) or "original". */
+  kind: string;
+  /** Notes pasted, or edits applied. */
+  count: number;
+}
+
+export interface Stepped {
+  record: SongRecord;
+  step: HistoryStep;
+}
+
+export const undoSong = (id: number) => invoke<Stepped>("songs_undo", { id });
+export const redoSong = (id: number) => invoke<Stepped>("songs_redo", { id });
 
 /** The system open panel, filtered to MIDI and MusicXML. Returns the chosen paths. */
 export async function pickMidiFiles(): Promise<string[]> {

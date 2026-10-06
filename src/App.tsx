@@ -25,10 +25,11 @@ export default function App() {
   const [exporting, setExporting] = useState<ExportTarget | null>(null);
   // What ⌘V pastes: a piano-roll range, from this song or any other.
   const [clip, setClip] = useState<RollClip | null>(null);
-  const [toast, setToast] = useState<{ text: string; undo?: number } | null>(null);
+  // A short note at the bottom, with an action when there is one to take.
+  const [toast, setToast] = useState<{ text: string; action?: { label: string; run: () => void } } | null>(null);
   useEffect(() => {
     if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), toast.undo != null ? 8000 : 4000);
+    const t = window.setTimeout(() => setToast(null), toast.action ? 8000 : 4000);
     return () => window.clearTimeout(t);
   }, [toast]);
   const copy = useCallback(
@@ -38,16 +39,43 @@ export default function App() {
     },
     [t]
   );
-  const { paste, undoEdit } = library;
+  const { paste, stepHistory } = library;
+  // Undo / redo, from ⌘Z, the sidebar or a toast; the toast says what was
+  // stepped over and offers the way back.
+  const history = useCallback(
+    async (songId: number, back: boolean, seconds?: number) => {
+      const done = await stepHistory(songId, back, seconds);
+      if (typeof done === "string") {
+        setToast({ text: done });
+        return;
+      }
+      const { kind, count } = done.step;
+      const what =
+        kind === "paste" ? t.history.paste(count) : kind === "claude" ? t.history.claude(count) : t.history.edit;
+      setToast({
+        text: back ? t.history.undone(what) : t.history.redone(what),
+        action: {
+          label: back ? t.history.redo : t.history.undo,
+          run: () => void history(songId, !back, seconds),
+        },
+      });
+    },
+    [stepHistory, t]
+  );
   const pasteClip = useCallback(
     async (request: PasteRequest) => {
       const result = await paste(request);
       if (!result) return false;
       // A saved paste can be taken back; one that joined Claude's edits goes with them.
-      setToast({ text: t.paste.pasted(result.notes), undo: result.staged ? undefined : request.toId });
+      setToast({
+        text: t.paste.pasted(result.notes),
+        action: result.staged
+          ? undefined
+          : { label: t.paste.undo, run: () => void history(request.toId, true, result.atSeconds) },
+      });
       return true;
     },
-    [paste, t]
+    [paste, history, t]
   );
   const { source } = library;
   // What is on screen is what gets exported, Claude's staged edits included.
@@ -154,7 +182,12 @@ export default function App() {
 
   return (
     <div className={`shell${dropping ? " dropping" : ""}`}>
-      <Sidebar library={library} playing={state === "playing"} onExport={exportSong} />
+      <Sidebar
+        library={library}
+        playing={state === "playing"}
+        onExport={exportSong}
+        onHistory={(id, back) => void history(id, back)}
+      />
       <main className="content">
         {/* With a song open the toolbar is the drag region; without one,
             this strip keeps the window movable from the content side. */}
@@ -185,6 +218,7 @@ export default function App() {
           clip={clip}
           onCopy={libraryAvailable() ? copy : undefined}
           onPaste={libraryAvailable() ? pasteClip : undefined}
+          onHistory={libraryAvailable() ? (id, back, seconds) => void history(id, back, seconds) : undefined}
           pasteStaged={library.pending.some((p) => p.songId === source?.id)}
         />
       </main>
@@ -203,16 +237,16 @@ export default function App() {
       {toast && (
         <div className="toast" role="status">
           {toast.text}
-          {toast.undo != null && (
+          {toast.action && (
             <button
               className="link-btn"
               onClick={() => {
-                const id = toast.undo!;
+                const run = toast.action!.run;
                 setToast(null);
-                void undoEdit(id);
+                run();
               }}
             >
-              {t.paste.undo}
+              {toast.action.label}
             </button>
           )}
         </div>

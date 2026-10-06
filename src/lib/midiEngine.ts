@@ -7,6 +7,7 @@ import type {
 import { DrumSynth } from "./drumSynth";
 import { messages } from "./i18n";
 import { diskCacheStorage, fetchCachedArrayBuffer } from "./assetCache";
+import { chordsFromText, decodeText, type ChordEvent } from "./midiText";
 import {
   prettyInstrumentName,
   instrumentFamily,
@@ -328,6 +329,25 @@ export interface SongInfo {
   keySignatures: KeySignatureEvent[];
   markers: MarkerEvent[];
   textMeta: string[];
+  /** Chord symbols the file writes as text events (a chord chart), if any. */
+  chords: ChordEvent[];
+  /** What each of the 16 channels does besides notes, for the lanes. */
+  channels: ChannelControls[];
+}
+
+/** A controller (or bend, or pressure) value from `time` on. */
+export interface ControlPoint {
+  time: number;
+  value: number;
+}
+
+export interface ChannelControls {
+  /** Pitch bend in semitones, scaled by the bend range in force then. */
+  bend: ControlPoint[];
+  /** Controller number → raw values (0–127), in time order. */
+  cc: Record<number, ControlPoint[]>;
+  /** Channel pressure (aftertouch), 0–127. */
+  pressure: ControlPoint[];
 }
 
 interface CCPoint {
@@ -468,6 +488,7 @@ export async function parseSong(
   const markers: MarkerEvent[] = [];
   const channelEvents: RawChannelEvent[] = [];
   const textMeta: string[] = [];
+  const texts: { time: number; text: string }[] = [];
   // Per-channel low-level events:
   const lowChannel: {
     programChanges: ProgramChange[];
@@ -498,20 +519,22 @@ export async function parseSong(
       const time = midi.header.ticksToSeconds(ticks);
       switch (ev.type) {
         case "marker":
-          markers.push({ time, text: ev.text, kind: "marker" });
+          markers.push({ time, text: decodeText(ev.text), kind: "marker" });
           break;
         case "cuePoint":
-          markers.push({ time, text: ev.text, kind: "cuePoint" });
+          markers.push({ time, text: decodeText(ev.text), kind: "cuePoint" });
           break;
         case "lyrics":
-          markers.push({ time, text: ev.text, kind: "lyrics" });
+          markers.push({ time, text: decodeText(ev.text), kind: "lyrics" });
           break;
         case "text":
-        case "copyrightNotice":
-          if (ev.text && !textMeta.includes(ev.text)) {
-            textMeta.push(ev.text);
-          }
+          texts.push({ time, text: decodeText(ev.text) });
           break;
+        case "copyrightNotice": {
+          const text = decodeText(ev.text);
+          if (text && !textMeta.includes(text)) textMeta.push(text);
+          break;
+        }
         case "programChange": {
           const ch = ev.channel ?? 0;
           lowChannel[ch].programChanges.push({
@@ -564,6 +587,16 @@ export async function parseSong(
   }
   markers.sort((a, b) => a.time - b.time);
   channelEvents.sort((a, b) => a.time - b.time);
+
+  // Text events are either a chord chart or notes to the reader.
+  texts.sort((a, b) => a.time - b.time);
+  const chords = chordsFromText(texts);
+  if (chords.length === 0) {
+    for (const { text } of texts) {
+      if (text.trim() && !textMeta.includes(text)) textMeta.push(text);
+    }
+  }
+  const channels = channelControls(channelEvents, lowChannel);
 
   const sourceTracks = midi.tracks.filter((t) => t.notes.length > 0);
   const notes: NoteEvent[] = [];
@@ -633,7 +666,7 @@ export async function parseSong(
       index,
       channel,
       name:
-        track.name?.trim() ||
+        decodeText(track.name ?? "").trim() ||
         (isPercussion ? t.drums : t.track(index + 1)),
       instrument: isPercussion
         ? t.drumsAndPercussion
@@ -676,10 +709,57 @@ export async function parseSong(
       keySignatures,
       markers,
       textMeta,
+      chords,
+      channels,
     },
     tracksData,
     channelEvents,
   };
+}
+
+/**
+ * Each channel's controllers, bends and pressure, for the piano roll's lanes.
+ * Bends are in semitones: the range is followed through RPN 0/0 as it
+ * changes, which is how the synth hears them.
+ */
+function channelControls(
+  events: RawChannelEvent[],
+  low: { channelAftertouch: CCPoint[] }[]
+): ChannelControls[] {
+  const out: ChannelControls[] = Array.from({ length: 16 }, (_, ch) => ({
+    bend: [],
+    cc: {},
+    pressure: (low[ch]?.channelAftertouch ?? [])
+      .map((p) => ({ time: p.time, value: Math.round(p.value * 127) }))
+      .sort((a, b) => a.time - b.time),
+  }));
+  const range = Array.from({ length: 16 }, () => 2);
+  // The parameter data entry goes to: an RPN (msb, lsb) or an NRPN.
+  const param = Array.from({ length: 16 }, () => ({ rpn: true, msb: 127, lsb: 127 }));
+  for (const e of events) {
+    const ch = e.channel & 15;
+    if (e.status === 0xe0) {
+      const raw = ((e.data2 << 7) | e.data1) - 8192;
+      out[ch].bend.push({ time: e.time, value: (raw / 8192) * range[ch] });
+      continue;
+    }
+    if (e.status !== 0xb0) continue;
+    (out[ch].cc[e.data1] ??= []).push({ time: e.time, value: e.data2 });
+    const p = param[ch];
+    if (e.data1 === 101 || e.data1 === 100) {
+      if (!p.rpn) Object.assign(p, { rpn: true, msb: 127, lsb: 127 });
+      if (e.data1 === 101) p.msb = e.data2;
+      else p.lsb = e.data2;
+    } else if (e.data1 === 99 || e.data1 === 98) {
+      if (p.rpn) Object.assign(p, { rpn: false, msb: 127, lsb: 127 });
+      if (e.data1 === 99) p.msb = e.data2;
+      else p.lsb = e.data2;
+    } else if (p.rpn && p.msb === 0 && p.lsb === 0) {
+      if (e.data1 === 6) range[ch] = e.data2;
+      else if (e.data1 === 38) range[ch] = Math.floor(range[ch]) + e.data2 / 100;
+    }
+  }
+  return out;
 }
 
 /** Common surface of the Web Audio engine and the native (Rust) engine. */
