@@ -26,7 +26,9 @@ export type Part =
       input: Record<string, unknown>;
       status: "running" | "ok" | "error";
       result: string | null;
-    };
+    }
+  /** A piano-roll range attached to a user message. */
+  | { type: "selection"; label: string; context: string };
 
 export interface Message {
   id: number;
@@ -73,6 +75,7 @@ export const sendChat = (args: {
   convId: number | null;
   text: string;
   song: { id: number; title: string } | null;
+  selections: { label: string; context: string }[];
   model: string | null;
   effort: Effort | null;
 }) => invoke<Conversation>("chat_send", args);

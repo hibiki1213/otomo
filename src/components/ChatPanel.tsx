@@ -18,6 +18,7 @@ import {
   type Part,
   type ToolEvent,
 } from "@/lib/chatApi";
+import { selectionContext, selectionLabel, type RollSelection } from "@/lib/rollSelection";
 import { libraryAvailable } from "@/lib/songsApi";
 import type { SongLibrary } from "@/lib/useSongLibrary";
 
@@ -210,12 +211,17 @@ export default function ChatPanel({
   onToggle,
   width,
   onResize,
+  attachments,
+  onAttachmentsChange,
 }: {
   library: SongLibrary;
   open: boolean;
   onToggle: () => void;
   width: number;
   onResize: (width: number) => void;
+  /** Piano-roll ranges waiting to go with the next message. */
+  attachments: RollSelection[];
+  onAttachmentsChange: (next: RollSelection[]) => void;
 }) {
   const [status, setStatus] = useState<ChatStatus | null>(null);
   const [convs, setConvs] = useState<Conversation[]>([]);
@@ -355,6 +361,13 @@ export default function ChatPanel({
     if (open) inputRef.current?.focus();
   }, [open, activeId]);
 
+  // A range just handed over: the next thing to do is say what to do with it.
+  const attachedCount = useRef(attachments.length);
+  useEffect(() => {
+    if (attachments.length > attachedCount.current) inputRef.current?.focus();
+    attachedCount.current = attachments.length;
+  }, [attachments.length]);
+
   const active = convs.find((c) => c.id === activeId) ?? null;
   const model = active ? active.model : newModel;
   const effort = active ? active.effort : newEffort;
@@ -364,15 +377,24 @@ export default function ChatPanel({
 
   const send = async (text = draft) => {
     const body = text.trim();
-    if (!body || busy) return;
+    if ((!body && attachments.length === 0) || busy) return;
     setError(null);
     setDraft("");
+    const attached = attachments;
+    const selections = attached.map((a, i) => ({
+      label: selectionLabel(a),
+      context: selectionContext(a, i + 1),
+    }));
+    onAttachmentsChange([]);
     stick.current = true;
     const convId = activeId;
     const optimistic: Message = {
       ...emptyAssistant(),
       role: "user",
-      parts: [{ type: "text", text: body }],
+      parts: [
+        ...selections.map((sel) => ({ type: "selection" as const, ...sel })),
+        ...(body ? [{ type: "text" as const, text: body }] : []),
+      ],
     };
     setMessages((prev) => [...prev, optimistic]);
     try {
@@ -380,6 +402,7 @@ export default function ChatPanel({
         convId,
         text: body,
         song: song ? { id: song.id, title: song.title } : null,
+        selections,
         model: convId == null ? newModel : null,
         effort: convId == null ? newEffort : null,
       });
@@ -398,6 +421,7 @@ export default function ChatPanel({
     } catch (e) {
       setError(String(e));
       setDraft(body);
+      onAttachmentsChange(attached);
       setMessages((prev) => prev.filter((m) => m !== optimistic));
     }
   };
@@ -642,13 +666,46 @@ export default function ChatPanel({
             {error}
           </p>
         )}
+        {attachments.length > 0 && (
+          <div className="chat-attachments">
+            {attachments.map((a, i) => (
+              <AttachmentChip
+                key={a.id}
+                selection={a}
+                number={i + 1}
+                otherSong={a.songId !== (song?.id ?? null)}
+                onRemove={() => onAttachmentsChange(attachments.filter((x) => x.id !== a.id))}
+                onToggleTrack={(track) =>
+                  onAttachmentsChange(
+                    attachments.map((x) =>
+                      x.id !== a.id
+                        ? x
+                        : {
+                            ...x,
+                            excluded: x.excluded.includes(track)
+                              ? x.excluded.filter((t) => t !== track)
+                              : [...x.excluded, track],
+                          }
+                    )
+                  )
+                }
+              />
+            ))}
+          </div>
+        )}
         <textarea
           ref={inputRef}
           className="chat-input"
           rows={2}
           value={draft}
           disabled={!!status?.blocked}
-          placeholder={song ? `「${song.title}」について頼む` : "作りたい曲を書く"}
+          placeholder={
+            attachments.length > 0
+              ? "選んだ範囲をどうしたいか書く"
+              : song
+                ? `「${song.title}」について頼む`
+                : "作りたい曲を書く"
+          }
           onChange={(e) => setDraft(e.target.value)}
           onInput={(e) => {
             const el = e.currentTarget;
@@ -717,7 +774,7 @@ export default function ChatPanel({
           ) : (
             <button
               className="chat-btn is-primary"
-              disabled={!draft.trim() || !!status?.blocked}
+              disabled={(!draft.trim() && attachments.length === 0) || !!status?.blocked}
               onClick={() => void send()}
             >
               送信
@@ -726,6 +783,58 @@ export default function ChatPanel({
         </div>
       </div>
     </aside>
+  );
+}
+
+/**
+ * One attached range in the chat box. Click to choose which of its tracks go
+ * with it; × takes it off.
+ */
+function AttachmentChip({
+  selection,
+  number,
+  otherSong,
+  onRemove,
+  onToggleTrack,
+}: {
+  selection: RollSelection;
+  number: number;
+  otherSong: boolean;
+  onRemove: () => void;
+  onToggleTrack: (track: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const choosable = selection.tracks.length > 1;
+  return (
+    <div className="chat-chip" onMouseLeave={() => setOpen(false)}>
+      <button
+        className="chat-chip-main"
+        onClick={() => choosable && setOpen((v) => !v)}
+        title={`${otherSong ? `「${selection.songTitle}」の範囲\n` : ""}${selectionContext(selection, number)}`}
+      >
+        <span className="chat-chip-n">{number}</span>
+        {otherSong && <span className="chat-chip-song">{selection.songTitle}</span>}
+        {selectionLabel(selection)}
+        {choosable && <span className="chat-chip-caret">▾</span>}
+      </button>
+      <button className="chat-chip-x" onClick={onRemove} aria-label="この範囲を外す">
+        ×
+      </button>
+      {open && (
+        <div className="chat-chip-menu">
+          {selection.tracks.map((t) => (
+            <label key={t.index}>
+              <input
+                type="checkbox"
+                checked={!selection.excluded.includes(t.index)}
+                onChange={() => onToggleTrack(t.index)}
+              />
+              {t.index}: {t.name}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -756,7 +865,24 @@ function group(parts: Part[]): (Part | ToolPart[])[] {
 function MessageView({ message, streaming }: { message: Message; streaming: boolean }) {
   if (message.role === "user") {
     const text = message.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
-    return <div className="chat-q">{text}</div>;
+    const ranges = message.parts.filter(
+      (p): p is Extract<Part, { type: "selection" }> => p.type === "selection"
+    );
+    return (
+      <div className="chat-q">
+        {ranges.length > 0 && (
+          <div className="chat-q-ranges">
+            {ranges.map((r, i) => (
+              <span key={i} className="chat-chip is-static" title={r.context}>
+                <span className="chat-chip-n">{i + 1}</span>
+                {r.label}
+              </span>
+            ))}
+          </div>
+        )}
+        {text}
+      </div>
+    );
   }
   const running = [...message.parts]
     .reverse()

@@ -111,6 +111,51 @@ pub fn synth_presets() -> Vec<InstrumentEntry> {
     builtin_instruments()
 }
 
+/* ---------- SFZ files the user added ---------- */
+
+const USER_LIBRARY: &str = "user";
+const USER_LIBRARY_NAME: &str = "マイ音源";
+
+fn user_entry(inst: crate::songs::UserInstrument) -> InstrumentEntry {
+    InstrumentEntry {
+        id: format!("my:{}", inst.id),
+        name: inst.name,
+        library: USER_LIBRARY.into(),
+        library_name: USER_LIBRARY_NAME.into(),
+        choice: InstrumentChoice::Sfz { path: inst.path, gain_db: 0.0 },
+    }
+}
+
+/// The user's own SFZ files that are still where they were picked from.
+fn user_instruments(app: &AppHandle) -> Vec<InstrumentEntry> {
+    let library = app.state::<crate::songs::SongLibrary>();
+    library
+        .user_instruments()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|i| Path::new(&i.path).is_file())
+        .map(user_entry)
+        .collect()
+}
+
+#[tauri::command]
+pub fn library_user_instruments(app: AppHandle) -> Vec<InstrumentEntry> {
+    user_instruments(&app)
+}
+
+/// Remember an .sfz picked from disk, so it is offered (to the user and to
+/// Claude) alongside the downloaded libraries from now on.
+#[tauri::command]
+pub fn library_add_user_instrument(app: AppHandle, path: String) -> Result<InstrumentEntry, String> {
+    let p = Path::new(&path);
+    if !p.is_file() || !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("sfz")) {
+        return Err("SFZ ファイル（.sfz）を選んでください。".into());
+    }
+    let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or(&path).to_owned();
+    let library = app.state::<crate::songs::SongLibrary>();
+    library.add_user_instrument(&path, &name).map(user_entry)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryStatus {
@@ -575,6 +620,13 @@ pub fn installed(app: &AppHandle) -> Vec<serde_json::Value> {
             }));
         }
     }
+    for entry in user_instruments(app) {
+        out.push(serde_json::json!({
+            "id": entry.id,
+            "kind": "sfz",
+            "name": format!("{} — {}", entry.library_name, entry.name),
+        }));
+    }
     for p in otomo_synth::PRESETS {
         out.push(serde_json::json!({
             "id": format!("synth:{}", p.id),
@@ -594,29 +646,60 @@ pub fn installed(app: &AppHandle) -> Vec<serde_json::Value> {
     out
 }
 
+/// Sent to the UI when Claude changes a track's instrument, so the picker
+/// shows it and the choice is remembered for the song like one made by hand.
+pub const INSTRUMENT_EVENT: &str = "instrument-assigned";
+
+#[derive(Serialize, Clone)]
+struct InstrumentAssigned {
+    track: usize,
+    choice: InstrumentChoice,
+    /// What the track's picker shows.
+    label: String,
+}
+
 /// Play `track` of the song on screen through the instrument called `id`.
 ///
 /// This is a playback setting, not part of the song: it changes what the
-/// engine sounds, and nothing is written to the file.
+/// engine sounds, and nothing is written to the file. The UI remembers it
+/// for the song, so it comes back the next time the song is opened.
 pub fn use_instrument(app: &AppHandle, track: usize, id: &str) -> Result<String, String> {
-    let (choice, label) = match id.strip_prefix("au:") {
-        Some(plugin) => (InstrumentChoice::AudioUnit { id: plugin.to_owned() }, id.to_owned()),
+    // `label` is what the picker shows; `described` is what Claude is told.
+    let (choice, label, described) = match id.strip_prefix("au:") {
+        Some(plugin) => {
+            let name = plugin_name(plugin).unwrap_or_else(|| id.to_owned());
+            (InstrumentChoice::AudioUnit { id: plugin.to_owned() }, name.clone(), name)
+        }
         None if id == "sf2" || id.eq_ignore_ascii_case("default") => {
-            (InstrumentChoice::Sf2, "内蔵の SoundFont".to_owned())
+            (InstrumentChoice::Sf2, String::new(), "内蔵の SoundFont".to_owned())
         }
         None => {
             let entry = find_instrument(app, id)
                 .ok_or_else(|| format!("{id}: そういう音源は入っていません。list_playback_instruments で確認してください。"))?;
-            let label = format!("{} — {}", entry.library_name, entry.name);
-            (entry.choice, label)
+            let described = format!("{} — {}", entry.library_name, entry.name);
+            (entry.choice, entry.name, described)
         }
     };
     let handle = app.state::<crate::engine::EngineHandle>();
-    crate::engine::assign_instrument(&handle, track, choice)?;
-    Ok(format!("トラック{track} を「{label}」で鳴らします。"))
+    crate::engine::assign_instrument(&handle, track, choice.clone())?;
+    let _ = app.emit(INSTRUMENT_EVENT, InstrumentAssigned { track, choice, label });
+    Ok(format!("トラック{track} を「{described}」で鳴らします（この曲の設定として記憶されます）。"))
+}
+
+#[cfg(target_os = "macos")]
+fn plugin_name(id: &str) -> Option<String> {
+    crate::instruments::audio_unit::list_instruments().into_iter().find(|p| p.id == id).map(|p| p.name)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn plugin_name(_id: &str) -> Option<String> {
+    None
 }
 
 fn find_instrument(app: &AppHandle, id: &str) -> Option<InstrumentEntry> {
+    if id.starts_with("my:") {
+        return user_instruments(app).into_iter().find(|e| e.id == id);
+    }
     let preset = id.strip_prefix("synth:").unwrap_or(id);
     if let Some(p) = otomo_synth::PRESETS.iter().find(|p| p.id == preset) {
         return Some(synth_entry(p));

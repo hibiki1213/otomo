@@ -18,6 +18,8 @@ use sha2::{Digest, Sha256};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager, State};
 
+use crate::instruments::InstrumentChoice;
+
 /// Opened once at startup and shared by every command.
 pub struct SongLibrary {
     db: Mutex<Connection>,
@@ -64,7 +66,41 @@ CREATE TABLE IF NOT EXISTS songs (
     favorite    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS songs_recent ON songs (last_played DESC, added_at DESC);
+-- What each track was last set to play through, by a person or by Claude.
+-- A playback setting, so it lives here rather than in the MIDI file.
+CREATE TABLE IF NOT EXISTS song_instruments (
+    song_id     INTEGER NOT NULL,
+    track       INTEGER NOT NULL,
+    choice      TEXT    NOT NULL,
+    label       TEXT    NOT NULL,
+    PRIMARY KEY (song_id, track)
+);
+-- SFZ files the user picked from disk, so they can be offered again (and
+-- named to Claude) like the instruments of a downloaded library.
+CREATE TABLE IF NOT EXISTS user_instruments (
+    id          INTEGER PRIMARY KEY,
+    path        TEXT    NOT NULL UNIQUE,
+    name        TEXT    NOT NULL,
+    added_at    INTEGER NOT NULL
+);
 ";
+
+/// A track's remembered instrument.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedInstrument {
+    pub track: usize,
+    pub choice: InstrumentChoice,
+    pub label: String,
+}
+
+/// An .sfz the user added from disk.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UserInstrument {
+    pub id: i64,
+    pub path: String,
+    pub name: String,
+}
 
 fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
@@ -131,6 +167,75 @@ impl SongLibrary {
         )
         .map_err(|e| e.to_string())?;
         get(&db, db.last_insert_rowid())
+    }
+
+    /// The instruments remembered for a song's tracks. Rows that no longer
+    /// parse (a choice from an older build) are skipped, not fatal.
+    pub fn instruments(&self, song: i64) -> Result<Vec<SavedInstrument>, String> {
+        let db = self.lock()?;
+        let mut stmt = db
+            .prepare("SELECT track, choice, label FROM song_instruments WHERE song_id = ?1 ORDER BY track")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![song], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
+            .map_err(|e| e.to_string())?;
+        Ok(rows
+            .flatten()
+            .filter_map(|(track, choice, label)| {
+                Some(SavedInstrument {
+                    track: usize::try_from(track).ok()?,
+                    choice: serde_json::from_str(&choice).ok()?,
+                    label,
+                })
+            })
+            .collect())
+    }
+
+    pub fn set_instrument(&self, song: i64, track: usize, choice: &InstrumentChoice, label: &str) -> Result<(), String> {
+        let choice = serde_json::to_string(choice).map_err(|e| e.to_string())?;
+        self.lock()?
+            .execute(
+                "INSERT INTO song_instruments (song_id, track, choice, label) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (song_id, track) DO UPDATE SET choice = excluded.choice, label = excluded.label",
+                params![song, track as i64, choice, label],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn clear_instruments(&self, song: i64) -> Result<(), String> {
+        self.lock()?
+            .execute("DELETE FROM song_instruments WHERE song_id = ?1", params![song])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// SFZ files the user has added, oldest first.
+    pub fn user_instruments(&self) -> Result<Vec<UserInstrument>, String> {
+        let db = self.lock()?;
+        let mut stmt = db
+            .prepare("SELECT id, path, name FROM user_instruments ORDER BY added_at, id")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok(UserInstrument { id: r.get(0)?, path: r.get(1)?, name: r.get(2)? }))
+            .map_err(|e| e.to_string())?;
+        Ok(rows.flatten().collect())
+    }
+
+    /// Remember an .sfz picked from disk; adding the same file again keeps
+    /// the existing entry.
+    pub fn add_user_instrument(&self, path: &str, name: &str) -> Result<UserInstrument, String> {
+        let db = self.lock()?;
+        db.execute(
+            "INSERT INTO user_instruments (path, name, added_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT (path) DO NOTHING",
+            params![path, name, now()],
+        )
+        .map_err(|e| e.to_string())?;
+        db.query_row("SELECT id, path, name FROM user_instruments WHERE path = ?1", params![path], |r| {
+            Ok(UserInstrument { id: r.get(0)?, path: r.get(1)?, name: r.get(2)? })
+        })
+        .map_err(|e| e.to_string())
     }
 
     fn pending_path(&self, id: i64) -> PathBuf {
@@ -394,6 +499,30 @@ pub fn songs_set_favorite(library: State<'_, SongLibrary>, id: i64, favorite: bo
     Ok(())
 }
 
+/// The instruments remembered for a song, to restore when it is opened.
+#[tauri::command]
+pub fn songs_instruments(library: State<'_, SongLibrary>, id: i64) -> Result<Vec<SavedInstrument>, String> {
+    library.instruments(id)
+}
+
+/// Remember what a track of a song plays through.
+#[tauri::command]
+pub fn songs_set_instrument(
+    library: State<'_, SongLibrary>,
+    id: i64,
+    track: usize,
+    choice: InstrumentChoice,
+    label: String,
+) -> Result<(), String> {
+    library.set_instrument(id, track, &choice, &label)
+}
+
+/// Forget every remembered instrument of a song (back to auto-assignment).
+#[tauri::command]
+pub fn songs_clear_instruments(library: State<'_, SongLibrary>, id: i64) -> Result<(), String> {
+    library.clear_instruments(id)
+}
+
 /// Remove a song from the library and delete its stored copy.
 #[tauri::command]
 pub fn songs_remove(library: State<'_, SongLibrary>, id: i64) -> Result<(), String> {
@@ -403,6 +532,7 @@ pub fn songs_remove(library: State<'_, SongLibrary>, id: i64) -> Result<(), Stri
         .optional()
         .map_err(|e| e.to_string())?;
     db.execute("DELETE FROM songs WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    db.execute("DELETE FROM song_instruments WHERE song_id = ?1", params![id]).map_err(|e| e.to_string())?;
     drop(db);
     if let Some(hash) = hash {
         // The row is gone either way; a leftover file is harmless.
@@ -446,6 +576,53 @@ mod tests {
         assert_eq!(lib.read(b.id).unwrap(), b"MThd-b");
         assert!(lib.read(9999).is_err());
         assert!(lib.import(b"", "empty.mid", None).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remembers_instruments_per_song() {
+        let dir = std::env::temp_dir().join(format!("otomo-songs-inst-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let lib = library(&dir);
+        let a = lib.import(b"MThd-a", "a.mid", None).unwrap();
+        let b = lib.import(b"MThd-b", "b.mid", None).unwrap();
+
+        let au = InstrumentChoice::AudioUnit { id: "aumu-abcd-Efgh".into() };
+        lib.set_instrument(a.id, 2, &au, "Synth").unwrap();
+        lib.set_instrument(a.id, 0, &InstrumentChoice::Sf2, "").unwrap();
+        // Choosing again replaces, it does not add.
+        let piano = InstrumentChoice::Sfz { path: "/x/piano.sfz".into(), gain_db: 0.0 };
+        lib.set_instrument(a.id, 2, &piano, "Piano").unwrap();
+
+        let saved = lib.instruments(a.id).unwrap();
+        assert_eq!(
+            saved,
+            vec![
+                SavedInstrument { track: 0, choice: InstrumentChoice::Sf2, label: String::new() },
+                SavedInstrument { track: 2, choice: piano, label: "Piano".into() },
+            ]
+        );
+        assert!(lib.instruments(b.id).unwrap().is_empty(), "other songs are untouched");
+
+        lib.clear_instruments(a.id).unwrap();
+        assert!(lib.instruments(a.id).unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn user_instruments_are_kept_once() {
+        let dir = std::env::temp_dir().join(format!("otomo-songs-user-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let lib = library(&dir);
+
+        let first = lib.add_user_instrument("/sfz/Cello.sfz", "Cello").unwrap();
+        let again = lib.add_user_instrument("/sfz/Cello.sfz", "Cello").unwrap();
+        assert_eq!(first, again);
+        lib.add_user_instrument("/sfz/Harp.sfz", "Harp").unwrap();
+        let names: Vec<_> = lib.user_instruments().unwrap().into_iter().map(|i| i.name).collect();
+        assert_eq!(names, ["Cello", "Harp"]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

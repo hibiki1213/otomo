@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ChatPanel from "@/components/ChatPanel";
 import PendingBar from "@/components/PendingBar";
 import Player from "@/components/Player";
 import Sidebar from "@/components/Sidebar";
 import type { PlayerState } from "@/lib/midiEngine";
+import type { RollSelection } from "@/lib/rollSelection";
 import { libraryAvailable } from "@/lib/songsApi";
 import { useSongLibrary } from "@/lib/useSongLibrary";
 
@@ -18,6 +19,13 @@ export default function App() {
   const [chatWidth, setChatWidth] = useState(() => Number(readPref("otomo.chat.width", "360")) || 360);
 
   useEffect(() => writePref("otomo.chat.open", chatOpen ? "1" : "0"), [chatOpen]);
+  // Piano-roll ranges waiting in the chat box.
+  const [attachments, setAttachments] = useState<RollSelection[]>([]);
+  const attach = useCallback((sel: Omit<RollSelection, "id" | "excluded">) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setAttachments((prev) => [...prev, { ...sel, id, excluded: [] }]);
+    setChatOpen(true);
+  }, []);
   useEffect(() => writePref("otomo.chat.width", String(chatWidth)), [chatWidth]);
 
   // Files dropped on the window arrive from the OS with real paths, so they
@@ -131,6 +139,7 @@ export default function App() {
           onStateChange={setState}
           stopRequest={stopRequest}
           onOpenFiles={openFiles}
+          onAttachSelection={libraryAvailable() ? attach : undefined}
         />
       </main>
       {libraryAvailable() && (
@@ -140,6 +149,8 @@ export default function App() {
           onToggle={() => setChatOpen((v) => !v)}
           width={chatWidth}
           onResize={setChatWidth}
+          attachments={attachments}
+          onAttachmentsChange={setAttachments}
         />
       )}
       {dropping && (

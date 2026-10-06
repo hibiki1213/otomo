@@ -100,6 +100,47 @@ export function removeLibrary(id: string): Promise<void> {
   return invoke("library_remove", { id });
 }
 
+/** SFZ files the user added from disk ("マイ音源"), still in place. */
+export function listUserInstruments(): Promise<InstrumentEntry[]> {
+  return invoke("library_user_instruments");
+}
+
+/** Remember an .sfz picked from disk, so it is offered from now on. */
+export function addUserInstrument(path: string): Promise<InstrumentEntry> {
+  return invoke("library_add_user_instrument", { path });
+}
+
+/** A track's instrument as remembered for a song. */
+export interface SavedInstrument {
+  track: number;
+  choice: InstrumentChoice;
+  label: string;
+}
+
+export function loadSongInstruments(songId: number): Promise<SavedInstrument[]> {
+  return invoke("songs_instruments", { id: songId });
+}
+
+export function saveSongInstrument(
+  songId: number,
+  track: number,
+  choice: InstrumentChoice,
+  label: string
+): Promise<void> {
+  return invoke("songs_set_instrument", { id: songId, track, choice, label });
+}
+
+export function clearSongInstruments(songId: number): Promise<void> {
+  return invoke("songs_clear_instruments", { id: songId });
+}
+
+/** Claude changed a track's instrument (through the MCP server). */
+export function onInstrumentAssigned(
+  cb: (a: SavedInstrument) => void
+): Promise<UnlistenFn> {
+  return listen<SavedInstrument>("instrument-assigned", (e) => cb(e.payload));
+}
+
 /** Best installed SFZ instrument per track, or null to keep the SoundFont. */
 export function suggestInstruments(
   tracks: { program: number; percussion: boolean }[]

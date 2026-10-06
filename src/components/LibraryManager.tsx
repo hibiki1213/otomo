@@ -61,7 +61,7 @@ export default function LibraryManager({
     setLibs((prev) => prev.map((l) => (l.id === id ? { ...l, installing: true } : l)));
     try {
       await installLibrary(id);
-      if (instruments.autoAssign) instruments.reassign();
+      if (instruments.autoAssign) instruments.fillUnchosen();
     } catch (e) {
       setError(String(e));
     } finally {

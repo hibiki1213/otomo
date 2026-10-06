@@ -22,6 +22,10 @@ import AcousticsBar from "@/components/AcousticsBar";
 import InstrumentPicker from "@/components/InstrumentPicker";
 import LibraryManager from "@/components/LibraryManager";
 import { useTrackInstruments } from "@/lib/useTrackInstruments";
+import type { BarBeat, RollSelection } from "@/lib/rollSelection";
+
+/** A piano-roll range, before it knows which song entry it belongs to. */
+export type RollSelectionDraft = Omit<RollSelection, "id" | "songId" | "songTitle" | "excluded">;
 
 type EngineKind = "native" | "web";
 
@@ -140,6 +144,19 @@ function buildBarMap(
   return { bars, beatsPerBarAt };
 }
 
+/** A beat (quarter notes from the start) as 1-based bar and beat-in-bar. */
+function beatPosition(bars: BarBoundary[], beat: number): BarBeat {
+  let lo = 0;
+  let hi = bars.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (bars[mid].beat <= beat + 1e-6) lo = mid;
+    else hi = mid - 1;
+  }
+  const b = bars[lo] ?? { beat: 0, bar: 0 };
+  return { bar: b.bar + 1, beat: beat - b.beat + 1 };
+}
+
 /* ---------- icons ---------- */
 
 function Icon({
@@ -219,6 +236,7 @@ export default function Player({
   onStateChange,
   onOpenFiles,
   stopRequest,
+  onAttachSelection,
 }: {
   source: SongSource | null;
   /** Reports what opening the song revealed, for the library entry. */
@@ -227,6 +245,8 @@ export default function Player({
   onOpenFiles: () => void;
   /** Changes when something outside the UI asks playback to stop (MCP). */
   stopRequest: number;
+  /** Hands a piano-roll range to the chat; absent when there is no chat. */
+  onAttachSelection?: (sel: Omit<RollSelection, "id" | "excluded">) => void;
 }) {
   const engineRef = useRef<PlaybackEngine | null>(null);
   const lastSongRef = useRef<{
@@ -239,6 +259,8 @@ export default function Player({
   );
 
   const [song, setSong] = useState<SongInfo | null>(null);
+  /** Library id of the song on screen (instruments are remembered per song). */
+  const [songId, setSongId] = useState<number | null>(null);
   const [state, setState] = useState<PlayerState>("idle");
   const [position, setPosition] = useState(0);
   const [volume, setVolume] = useState(0.9);
@@ -290,6 +312,7 @@ export default function Player({
         const info = await engine.load(buffer, name);
         if (engineRef.current !== engine) return;
         setSong(info);
+        setSongId(id);
         // Loading gave the engine fresh, unmuted, full-level tracks.
         sentMuted.current = info.tracks.map(() => false);
         sentGain.current = info.tracks.map(() => 1);
@@ -497,7 +520,17 @@ export default function Player({
   );
 
   const instrumentGroups = useMemo(() => gmInstrumentGroups(), []);
-  const instruments = useTrackInstruments(song, engineKind === "native");
+  const instruments = useTrackInstruments(song, songId, engineKind === "native");
+
+  const attachSelection = useMemo(() => {
+    if (!onAttachSelection) return undefined;
+    return (draft: RollSelectionDraft) =>
+      onAttachSelection({
+        ...draft,
+        songId,
+        songTitle: source?.title ?? song?.name.replace(/\.midi?$/i, "") ?? "",
+      });
+  }, [onAttachSelection, songId, source, song]);
 
   const trackList = useMemo(() => {
     if (!song) return null;
@@ -700,6 +733,7 @@ export default function Player({
             muted={silenced}
             onSeek={seekTo}
             getLivePosition={getLivePosition}
+            onAttach={attachSelection}
           />
 
           {trackList}
@@ -1009,6 +1043,7 @@ function PianoRoll({
   muted,
   onSeek,
   getLivePosition,
+  onAttach,
 }: {
   song: SongInfo;
   position: number;
@@ -1016,6 +1051,8 @@ function PianoRoll({
   muted: boolean[];
   onSeek: (ratio: number) => void;
   getLivePosition: () => number;
+  /** Drag in the notes area selects a range for this; a click still seeks. */
+  onAttach?: (sel: RollSelectionDraft) => void;
 }) {
   const mainRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1044,6 +1081,17 @@ function PianoRoll({
     () => buildBarMap(song.timeSignatures, tempoMap),
     [song, tempoMap]
   );
+
+  /* range selection: whole beats × whole keys, to hand to Claude */
+  const [sel, setSel] = useState<{ b0: number; b1: number; lo: number; hi: number } | null>(null);
+  const selDragRef = useRef<{ beat: number; midi: number; x: number; y: number; moved: boolean } | null>(null);
+  useEffect(() => setSel(null), [song]);
+  useEffect(() => {
+    if (!sel) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setSel(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sel]);
 
   const contentW = song.duration * pxPerSec;
   const maxScroll = Math.max(0, contentW - viewportW);
@@ -1526,7 +1574,71 @@ function PianoRoll({
     [scrollX, pxPerSec, onSeek, song.duration]
   );
 
-  const draggingRef = useRef<null | "main" | "ov-scrub" | "ov-pan">(null);
+  /** Where a pointer is, in beats and keys (rows are whole keys). */
+  const pointAt = useCallback(
+    (clientX: number, clientY: number) => {
+      const el = mainRef.current;
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const t = Math.max(0, Math.min(song.duration, (scrollX + x) / pxPerSec));
+      const noteH = ROLL_NOTES_H / padded.range;
+      const row = Math.floor((RULER_H + ROLL_NOTES_H - y) / noteH);
+      const midi = Math.max(0, Math.min(127, padded.lo + Math.max(0, Math.min(padded.range - 1, row))));
+      return { y, beat: timeToBeat(tempoMap, t), midi };
+    },
+    [scrollX, pxPerSec, song.duration, padded, tempoMap]
+  );
+
+  const attachSelection = () => {
+    if (!sel || !onAttach) return;
+    const t0 = beatToTime(tempoMap, sel.b0);
+    const t1 = beatToTime(tempoMap, sel.b1);
+    const notes: RollSelectionDraft["notes"] = [];
+    const used = new Set<number>();
+    // Notes that start inside the range; song.notes is in time order.
+    for (const n of song.notes) {
+      if (n.time < t0 - 1e-6) continue;
+      if (n.time >= t1 - 1e-6) break;
+      if (n.midi < sel.lo || n.midi > sel.hi) continue;
+      const nb = timeToBeat(tempoMap, n.time);
+      notes.push({
+        track: n.trackIndex,
+        midi: n.midi,
+        at: beatPosition(barMap.bars, nb),
+        beats: timeToBeat(tempoMap, n.time + n.duration) - nb,
+      });
+      used.add(n.trackIndex);
+    }
+    notes.sort((a, b) => a.track - b.track);
+    onAttach({
+      start: beatPosition(barMap.bars, sel.b0),
+      end: beatPosition(barMap.bars, sel.b1 - 1),
+      lo: sel.lo,
+      hi: sel.hi,
+      tracks: song.tracks
+        .filter((t) => used.has(t.index))
+        .map((t) => ({ index: t.index, name: t.name || t.instrument })),
+      notes,
+    });
+    setSel(null);
+  };
+
+  const selBox = useMemo(() => {
+    if (!sel) return null;
+    const noteH = ROLL_NOTES_H / padded.range;
+    const x0 = beatToTime(tempoMap, sel.b0) * pxPerSec - scrollX;
+    const x1 = beatToTime(tempoMap, sel.b1) * pxPerSec - scrollX;
+    return {
+      left: x0,
+      width: Math.max(2, x1 - x0),
+      top: RULER_H + ROLL_NOTES_H - (sel.hi - padded.lo + 1) * noteH,
+      height: (sel.hi - sel.lo + 1) * noteH,
+    };
+  }, [sel, tempoMap, pxPerSec, scrollX, padded]);
+
+  const draggingRef = useRef<null | "main" | "select" | "ov-scrub" | "ov-pan">(null);
   const panOriginRef = useRef({ x: 0, scroll: 0 });
 
   useEffect(() => {
@@ -1535,6 +1647,16 @@ function PianoRoll({
       if (!mode) return;
       if (mode === "main") {
         seekFromMain(e.clientX);
+      } else if (mode === "select") {
+        const d = selDragRef.current;
+        const p = pointAt(e.clientX, e.clientY);
+        if (!d || !p) return;
+        if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;
+        d.moved = true;
+        const total = Math.max(1, Math.ceil(tempoMap.totalBeats - 1e-6));
+        const b0 = Math.max(0, Math.min(total - 1, Math.floor(Math.min(d.beat, p.beat))));
+        const b1 = Math.max(b0 + 1, Math.min(total, Math.ceil(Math.max(d.beat, p.beat))));
+        setSel({ b0, b1, lo: Math.min(d.midi, p.midi), hi: Math.max(d.midi, p.midi) });
       } else if (mode === "ov-scrub") {
         const el = overviewWrapRef.current;
         if (!el) return;
@@ -1562,6 +1684,13 @@ function PianoRoll({
       }
     };
     const up = () => {
+      // A press in the notes area that never moved is a click: seek there.
+      const d = selDragRef.current;
+      if (draggingRef.current === "select" && d && !d.moved) {
+        seekFromMain(d.x);
+        setSel(null);
+      }
+      selDragRef.current = null;
       draggingRef.current = null;
     };
     window.addEventListener("pointermove", move);
@@ -1572,7 +1701,7 @@ function PianoRoll({
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
     };
-  }, [seekFromMain, maxScroll, pxPerSec, viewportW, contentW, song.duration]);
+  }, [seekFromMain, pointAt, tempoMap, maxScroll, pxPerSec, viewportW, contentW, song.duration]);
 
   /* zoom controls */
   const zoomBy = (factor: number) => {
@@ -1602,6 +1731,9 @@ function PianoRoll({
         >
           Piano Roll
         </span>
+        {onAttach && (
+          <span className="roll-hint">ドラッグで範囲を選んで AI に渡せます</span>
+        )}
         <div style={{ flex: 1 }} />
         <button
           className={`toggle-chip${follow ? " on" : ""}`}
@@ -1637,12 +1769,30 @@ function PianoRoll({
         className="roll-main"
         onPointerDown={(e) => {
           (e.target as Element).setPointerCapture?.(e.pointerId);
+          const p = onAttach ? pointAt(e.clientX, e.clientY) : null;
+          if (p && p.y >= RULER_H) {
+            selDragRef.current = { beat: p.beat, midi: p.midi, x: e.clientX, y: e.clientY, moved: false };
+            draggingRef.current = "select";
+            return;
+          }
           draggingRef.current = "main";
           seekFromMain(e.clientX);
         }}
       >
         <canvas ref={canvasRef} />
         <div ref={playheadRef} className="roll-playhead" />
+        {selBox && (
+          <div className="roll-selection" style={selBox}>
+            <button
+              className="roll-selection-btn"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={attachSelection}
+              title="選んだ範囲をチャットに添付（Esc で解除）"
+            >
+              AIに渡す
+            </button>
+          </div>
+        )}
       </div>
 
       <div
@@ -1713,6 +1863,7 @@ function ViewSwitcher({
   muted,
   onSeek,
   getLivePosition,
+  onAttach,
 }: {
   primary: PrimaryView;
   onPrimaryChange: (v: PrimaryView) => void;
@@ -1724,6 +1875,7 @@ function ViewSwitcher({
   muted: boolean[];
   onSeek: (ratio: number) => void;
   getLivePosition: () => number;
+  onAttach?: (sel: RollSelectionDraft) => void;
 }) {
   return (
     <div className="view-shell">
@@ -1757,6 +1909,7 @@ function ViewSwitcher({
           muted={muted}
           onSeek={onSeek}
           getLivePosition={getLivePosition}
+          onAttach={onAttach}
         />
       )}
       {primary === "score" && (

@@ -1,4 +1,5 @@
 import {
+  addUserInstrument,
   choiceKey,
   openPluginEditor,
   pickSfzFile,
@@ -28,7 +29,14 @@ export default function InstrumentPicker({
       void instruments.apply(track, { kind: "sf2" }, "");
     } else if (v === PICK_VALUE) {
       const path = await pickSfzFile();
-      if (path) {
+      if (!path) return;
+      try {
+        // Kept as マイ音源, so it is offered again and Claude can use it.
+        const entry = await addUserInstrument(path);
+        void instruments.refreshCatalog();
+        void instruments.apply(track, entry.choice, entry.name);
+      } catch (e) {
+        console.error("add instrument", e);
         const name = path.split("/").pop()?.replace(/\.sfz$/i, "") ?? path;
         void instruments.apply(track, { kind: "sfz", path }, name);
       }

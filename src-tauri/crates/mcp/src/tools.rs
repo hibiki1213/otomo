@@ -154,7 +154,7 @@ impl Handler for Server {
             },
             Tool {
                 name: "list_playback_instruments",
-                description: "Otomo で使える音源（内蔵シンセ、SFZ ライブラリ、AudioUnit プラグイン）の一覧。\
+                description: "Otomo で使える音源（内蔵シンセ、SFZ ライブラリ、ユーザーが自分で追加した SFZ「マイ音源」、AudioUnit プラグイン）の一覧。\
                               内蔵シンセには EDM 向けの音色（スーパーソウ、プラック、808、ワブルベース、EDM ドラムなど）がある。\
                               General MIDI の音色より良い音で鳴らしたいときに使う。起動中の Otomo が要る。",
                 schema: json!({ "type": "object", "properties": {} }),
@@ -162,7 +162,8 @@ impl Handler for Server {
             Tool {
                 name: "set_playback_instrument",
                 description: "いま開いている曲のトラックを、指定した音源で鳴らす。\
-                              これは再生の設定で、曲そのものは変わらない（保存もされない）。",
+                              これは再生の設定で、曲のデータ（MIDI）は変わらない。\
+                              設定は曲ごとに記憶され、次にこの曲を開いたときも同じ音源で鳴る。",
                 schema: json!({
                     "type": "object",
                     "properties": {

@@ -128,6 +128,16 @@ pub enum Part {
         status: String,
         result: Option<String>,
     },
+    /// A piano-roll range the user attached: the chip it showed as, and the
+    /// description Claude was given.
+    Selection { label: String, context: String },
+}
+
+/// A piano-roll range attached to a message.
+#[derive(Deserialize)]
+pub struct SelectionInput {
+    pub label: String,
+    pub context: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -236,6 +246,11 @@ Wikimedia Commons、Mutopia Project、IMSLP、abcnotation.com など、パブリ
 編集したら、何を変えたかを一言で伝える。\n\
 - 音を確かめてほしいときは play で鳴らす（範囲や繰り返しも使える）。\n\
 - 各メッセージの頭に [アプリの状態] が付く。「この曲」「いまの曲」はそこに書かれた曲を指す。\n\
+- [選択範囲 N] が付くことがある。ユーザーがピアノロールで囲んだ「時間×音域」の範囲で、\
+「ここ」「この部分」「この音域」はそれを指す。複数あれば番号で区別する。\
+直すときは範囲の中を中心に変え、範囲の外（前後の小節や、範囲外の音域の音）は音楽的に必要な分だけにとどめる。\
+write_bars は小節をまるごと書き換えるので、同じ小節にある範囲外の音は read_bars で読んだとおりに書き戻して残す。\
+音のない範囲なら、そこに新しく書き足してよい（どのトラックに書くか決まっていなければ、合うトラックを選ぶか新しく作る）。\n\
 - 返事は日本語で、短く。音楽用語は使ってよいが、長い説明はしない。\n"
 }
 
@@ -435,11 +450,13 @@ pub fn chat_send(
     conv_id: Option<i64>,
     text: String,
     song: Option<SongContext>,
+    selections: Option<Vec<SelectionInput>>,
     model: Option<String>,
     effort: Option<String>,
 ) -> Result<Conversation, String> {
     let text = text.trim().to_string();
-    if text.is_empty() {
+    let selections = selections.unwrap_or_default();
+    if text.is_empty() && selections.is_empty() {
         return Err("メッセージが空です".into());
     }
     let status = chat_status();
@@ -459,7 +476,12 @@ pub fn chat_send(
             db.execute(
                 "INSERT INTO chat_conv (title, model, effort, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?4)",
-                params![short(&text, 40), model, effort, t],
+                params![
+                    short(if text.is_empty() { &selections[0].label } else { &text }, 40),
+                    model,
+                    effort,
+                    t
+                ],
             )
             .map_err(|e| e.to_string())?;
             db.last_insert_rowid()
@@ -485,7 +507,11 @@ pub fn chat_send(
         &Message {
             id: 0,
             role: "user".into(),
-            parts: vec![Part::Text { text: text.clone() }],
+            parts: selections
+                .iter()
+                .map(|s| Part::Selection { label: s.label.clone(), context: s.context.clone() })
+                .chain((!text.is_empty()).then(|| Part::Text { text: text.clone() }))
+                .collect(),
             created_at: now(),
             model: None,
             effort: None,
@@ -501,7 +527,17 @@ pub fn chat_send(
         Some(s) => format!("[アプリの状態] いま開いている曲: 「{}」（song_id: {}）", s.title, s.id),
         None => "[アプリの状態] 曲は開いていません".to_string(),
     };
-    let prompt = format!("{context}\n\n{text}");
+    let mut prompt = context;
+    for s in &selections {
+        prompt.push_str("\n\n");
+        prompt.push_str(&s.context);
+    }
+    prompt.push_str("\n\n");
+    prompt.push_str(if text.is_empty() {
+        "（指示は書かれていません。選択範囲を確かめて、どう直せそうかを短く提案してください。）"
+    } else {
+        text.as_str()
+    });
 
     // The data directory is passed explicitly so the server always works on
     // the library this app is showing.
