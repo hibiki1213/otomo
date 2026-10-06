@@ -19,14 +19,25 @@ pub fn tools() -> Vec<Tool> {
             name: "create_song",
             description: "Create an empty song in the library, then write its contents with add_track and write_bars. \
                           For music that already exists (national anthems, classical pieces, folk songs, etc.), \
-                          first search the web for MIDI or sheet music and import it with download instead.",
+                          first search the web for MIDI or sheet music and import it with download instead. \
+                          To arrange a song already in the library, give from_song_id: the new song starts as a copy of it \
+                          (tempo, time signature, key and notes, pedal included), optionally only some tracks and bars, \
+                          and the original stays as it is.",
             schema: json!({
                 "type": "object",
                 "properties": {
                     "title": { "type": "string" },
-                    "tempo": { "type": "number", "description": "BPM (default 120)" },
-                    "time_signature": { "type": "string", "description": "\"4/4\" (default), \"3/4\", etc." },
-                    "key": { "type": "string", "description": "\"D major\", \"B minor\", etc." }
+                    "tempo": { "type": "number", "description": "BPM (default 120). Ignored with from_song_id" },
+                    "time_signature": { "type": "string", "description": "\"4/4\" (default), \"3/4\", etc. Ignored with from_song_id" },
+                    "key": { "type": "string", "description": "\"D major\", \"B minor\", etc. Ignored with from_song_id" },
+                    "from_song_id": { "type": "integer", "description": "Start from a copy of this library song" },
+                    "tracks": {
+                        "type": "array",
+                        "items": { "type": "integer" },
+                        "description": "With from_song_id: the tracks to keep, in order (default all)"
+                    },
+                    "from_bar": { "type": "integer", "description": "With from_song_id: the first bar to keep (default 1); it becomes bar 1" },
+                    "to_bar": { "type": "integer", "description": "With from_song_id: the last bar to keep (default the end)" }
                 },
                 "required": ["title"]
             }),
@@ -125,13 +136,17 @@ pub fn tools() -> Vec<Tool> {
             description: "Copy a range of bars from one track to another — the core of orchestration work. \
                           transpose shifts the pitch; voice takes only the top line of the chords (melody) \
                           or the bottom line (bass). With merge set to true, the notes are layered on top \
-                          instead of replacing what is there (octave doublings, etc.).",
+                          instead of replacing what is there (octave doublings, etc.). \
+                          With from_song_id, the bars come from another song in the library (velocities, pedal and \
+                          expression included, placed beat for beat whatever the tempo); the result says if the keys differ. \
+                          Leave out to_track to put them on a new track with the source track's instrument and name.",
             schema: json!({
                 "type": "object",
                 "properties": {
-                    "song_id": { "type": "integer" },
-                    "from_track": { "type": "integer" },
-                    "to_track": { "type": "integer" },
+                    "song_id": { "type": "integer", "description": "The song to copy into" },
+                    "from_song_id": { "type": "integer", "description": "The song to copy from (default: song_id itself)" },
+                    "from_track": { "type": "integer", "description": "Track number in the song copied from" },
+                    "to_track": { "type": "integer", "description": "Track number in song_id; leave out for a new track" },
                     "from_bar": { "type": "integer" },
                     "to_bar": { "type": "integer" },
                     "at_bar": { "type": "integer", "description": "First bar at the destination (defaults to the same bar)" },
@@ -142,7 +157,7 @@ pub fn tools() -> Vec<Tool> {
                     },
                     "merge": { "type": "boolean", "description": "Layer onto the destination instead of clearing it (default false)" }
                 },
-                "required": ["song_id", "from_track", "to_track", "from_bar", "to_bar"]
+                "required": ["song_id", "from_track", "from_bar", "to_bar"]
             }),
         },
         Tool {
@@ -288,7 +303,11 @@ pub fn call(
     }
 
     let mut score = pending::current(library, data_dir, &song)?;
-    let summary = apply(name, args, &mut score)?;
+    let summary = if name == "copy_bars" && (args.get("from_song_id").is_some() || args.get("to_track").is_none()) {
+        copy_between(args, library, data_dir, song.id, &mut score)?
+    } else {
+        apply(name, args, &mut score)?
+    };
     let staged = pending::stage(data_dir, &song, &score, &summary)?;
     notify(data_dir, song.id);
     Ok(staged)
@@ -403,7 +422,47 @@ fn apply(name: &str, args: &Value, score: &mut Score) -> Result<String, String> 
     }
 }
 
+/// copy_bars from another song, or into a new track.
+fn copy_between(
+    args: &Value,
+    library: &Library,
+    data_dir: &std::path::Path,
+    song_id: i64,
+    score: &mut Score,
+) -> Result<String, String> {
+    let from_id = opt_i64(args, "from_song_id").unwrap_or(song_id);
+    // What the person hears in the other song is its staged version, if any.
+    let (source, title) = if from_id == song_id {
+        (score.clone(), library.get(song_id)?.title)
+    } else {
+        let other = library.get(from_id)?;
+        (pending::current(library, data_dir, &other)?, other.title)
+    };
+    let from_bar = need_bar(args, "from_bar")?;
+    score.copy_from(
+        &source,
+        &title,
+        need_usize(args, "from_track")?,
+        from_bar,
+        need_bar(args, "to_bar")?,
+        args.get("to_track").map(|_| need_usize(args, "to_track")).transpose()?,
+        match opt_i64(args, "at_bar") {
+            Some(_) => need_bar(args, "at_bar")?,
+            None => from_bar,
+        },
+        opt_i64(args, "transpose").unwrap_or(0).clamp(-48, 48) as i32,
+        match opt_str(args, "voice") {
+            Some(text) => Voice::parse(&text)?,
+            None => Voice::All,
+        },
+        args.get("merge").and_then(Value::as_bool).unwrap_or(false),
+    )
+}
+
 fn create_song(args: &Value, library: &Library, data_dir: &std::path::Path) -> Result<String, String> {
+    if let Some(from_id) = opt_i64(args, "from_song_id") {
+        return create_from(args, library, data_dir, from_id);
+    }
     let (num, den) = match opt_str(args, "time_signature") {
         Some(text) => parse_signature(&text)?,
         None => (4, 4),
@@ -424,6 +483,42 @@ fn create_song(args: &Value, library: &Library, data_dir: &std::path::Path) -> R
         "Created \"{title}\" (song_id {}, {bpm:.0} BPM, {num}/{den}). \
          Add instruments with add_track, then write with write_bars.",
         song.id
+    ))
+}
+
+/// A new song that starts as a copy of (part of) another.
+fn create_from(args: &Value, library: &Library, data_dir: &std::path::Path, from_id: i64) -> Result<String, String> {
+    let original = library.get(from_id)?;
+    let source = pending::current(library, data_dir, &original)?;
+    let tracks: Option<Vec<usize>> = match args.get("tracks") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(list)) => Some(
+            list.iter()
+                .map(|v| v.as_u64().map(|n| n as usize).ok_or("tracks must be track numbers"))
+                .collect::<Result<_, _>>()?,
+        ),
+        Some(_) => return Err("tracks must be an array of track numbers".into()),
+    };
+    let last = source.bars().count;
+    let from_bar = match opt_i64(args, "from_bar") {
+        Some(_) => need_bar(args, "from_bar")?,
+        None => 1,
+    };
+    let to_bar = match opt_i64(args, "to_bar") {
+        Some(_) => need_bar(args, "to_bar")?.min(last),
+        None => last,
+    };
+    let score = source.excerpt(tracks.as_deref(), from_bar, to_bar)?;
+    let title = need_str(args, "title")?;
+    let song = library.create(title, &score.to_smf()?)?;
+    let parts: Vec<String> =
+        score.tracks.iter().enumerate().map(|(i, t)| format!("{i} {}", t.display_name())).collect();
+    Ok(format!(
+        "Created \"{title}\" (song_id {}) from bars {from_bar}–{to_bar} of \"{}\". Tracks: {}. \
+         The original is unchanged; edit the new song with its song_id.",
+        song.id,
+        original.title,
+        parts.join(", ")
     ))
 }
 

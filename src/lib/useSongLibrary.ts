@@ -8,6 +8,7 @@ import {
   getSong,
   importSong,
   listPendingEdits,
+  pasteClip,
   pendingData,
   undoApply,
   libraryAvailable,
@@ -18,6 +19,8 @@ import {
   setSongFavorite,
   songData,
   songPlayed,
+  type PasteRequest,
+  type PasteResult,
   type PendingEdit,
   type SongRecord,
 } from "./songsApi";
@@ -79,7 +82,7 @@ export function useSongLibrary() {
       song: SongRecord,
       startAt?: number,
       staged = false,
-      range?: { stopAt?: number; loop?: boolean; solo?: number[] }
+      range?: { stopAt?: number; loop?: boolean; solo?: number[]; autoplay?: boolean }
     ) => {
       wanted.current = song.id;
       const mine = ++token.current;
@@ -241,6 +244,26 @@ export function useSongLibrary() {
         }
       },
       [play, refreshPending]
+    ),
+    /**
+     * Paste a copied range. The song reloads at the paste, ready to play;
+     * when Claude has edits waiting on it, the paste joins them instead.
+     */
+    paste: useCallback(
+      async (request: PasteRequest): Promise<PasteResult | null> => {
+        try {
+          const result = await pasteClip(request);
+          await refresh(query);
+          if (result.staged) await refreshPending();
+          await play(result.record, result.atSeconds, result.staged, { autoplay: false });
+          return result;
+        } catch (e) {
+          console.error(e);
+          setError(String(e));
+          return null;
+        }
+      },
+      [play, query, refresh, refreshPending]
     ),
     undoEdit: useCallback(
       async (songId: number) => {

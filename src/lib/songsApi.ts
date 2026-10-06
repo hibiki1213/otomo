@@ -82,3 +82,50 @@ export async function pickMidiFiles(): Promise<string[]> {
   if (!picked) return [];
   return Array.isArray(picked) ? picked : [picked];
 }
+
+/** A range copied from the piano roll, held until it is pasted somewhere. */
+export interface RollClip {
+  songId: number;
+  songTitle: string;
+  /** Copied from Claude's staged version. */
+  staged: boolean;
+  /** Quarter notes from the start of the song. */
+  startBeat: number;
+  endBeat: number;
+  /** Where it starts, as bar and beat (for showing, and as the paste's beat). */
+  start: { bar: number; beat: number };
+  end: { bar: number; beat: number };
+  lo: number;
+  hi: number;
+  /** Tracks with notes in the range. */
+  tracks: { index: number; name: string }[];
+  noteCount: number;
+}
+
+export interface PasteRequest {
+  fromId: number;
+  fromStaged: boolean;
+  startBeat: number;
+  endBeat: number;
+  lo: number;
+  hi: number;
+  /** `to: null` makes a new track like the source one. */
+  parts: { from: number; to: number | null }[];
+  toId: number;
+  /** Quarter notes from the start of the destination. */
+  atBeat: number;
+  /** The bar that is, for the record. */
+  atBar: number;
+  transpose: number;
+  merge: boolean;
+}
+
+export interface PasteResult {
+  record: SongRecord;
+  /** It joined Claude's staged edit instead of being saved. */
+  staged: boolean;
+  atSeconds: number;
+  notes: number;
+}
+
+export const pasteClip = (request: PasteRequest) => invoke<PasteResult>("songs_paste", { request });

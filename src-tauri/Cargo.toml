@@ -48,6 +48,14 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 sha2 = "0.10.9"
 otomo-score = { path = "crates/score" }
 otomo-synth = { path = "crates/synth" }
+# Sheet-music PDF: the engraved SVG pages, as vector pages. usvg must be the
+# version krilla-svg is built on.
+krilla = { version = "0.8.2", default-features = false }
+krilla-svg = "0.8.1"
+usvg = "0.47.0"
+ttf-parser = "0.25.1"
+wuff = { version = "0.2.9", default-features = false, features = ["brotli"] }
+base64 = "0.22.1"
 
 # The synth runs on the realtime audio thread; unoptimized it can barely keep
 # up with dense arrangements, so optimize it (and the engine) even in dev.

@@ -243,6 +243,79 @@ impl SongLibrary {
         self.pending.join(format!("{id}.mid"))
     }
 
+    /// A song's title and MIDI bytes: what is saved, or what Claude staged.
+    pub(crate) fn source(&self, id: i64, staged: bool) -> Result<(String, Vec<u8>), String> {
+        let title = get(&*self.lock()?, id)?.title;
+        let bytes = if staged {
+            std::fs::read(self.pending_path(id))
+                .map_err(|_| tr!("この曲に未適用の編集はありません", "This song has no pending edits"))?
+        } else {
+            self.read(id)?
+        };
+        Ok((title, bytes))
+    }
+
+    pub(crate) fn record(&self, id: i64) -> Result<SongRecord, String> {
+        get(&*self.lock()?, id)
+    }
+
+    pub(crate) fn has_pending(&self, id: i64) -> bool {
+        self.pending_path(id).exists()
+    }
+
+    /// Make `data` the song's saved version, keeping the one it replaces so
+    /// the change can be undone.
+    pub(crate) fn commit(&self, id: i64, data: &[u8]) -> Result<SongRecord, String> {
+        if data.is_empty() {
+            return Err(tr!("編集後のファイルが空です", "The edited file is empty"));
+        }
+        let hash = format!("{:x}", Sha256::digest(data));
+        let path = self.path_for(&hash);
+        let tmp = path.with_extension("part");
+        std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+
+        let db = self.lock()?;
+        // Duration and track count are what the old version measured; opening
+        // the new one replaces them.
+        db.execute(
+            "UPDATE songs
+             SET previous_hash = hash, hash = ?2, bytes = ?3, duration = 0, track_count = 0
+             WHERE id = ?1",
+            params![id, hash, data.len() as i64],
+        )
+        .map_err(|e| e.to_string())?;
+        get(&db, id)
+    }
+
+    /// Add a change to the song's staged edit, the way the MCP server stages
+    /// Claude's (same files, same note), so it is applied or discarded with them.
+    pub(crate) fn stage(&self, id: i64, data: &[u8], change: &str) -> Result<(), String> {
+        std::fs::create_dir_all(&self.pending).map_err(|e| e.to_string())?;
+        let path = self.pending_path(id);
+        let tmp = path.with_extension("part");
+        std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+
+        let note_path = self.pending.join(format!("{id}.json"));
+        let mut note: serde_json::Value = std::fs::read_to_string(&note_path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        let title = get(&*self.lock()?, id)?.title;
+        let mut changes: Vec<serde_json::Value> =
+            note.get("changes").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+        changes.push(change.into());
+        if changes.len() > 20 {
+            changes.drain(..changes.len() - 20);
+        }
+        note["songId"] = id.into();
+        note["title"] = title.into();
+        note["changes"] = changes.into();
+        note["updated"] = now().into();
+        std::fs::write(&note_path, note.to_string()).map_err(|e| e.to_string())
+    }
+
     fn read(&self, id: i64) -> Result<Vec<u8>, String> {
         let db = self.lock()?;
         let hash: String = db
@@ -342,27 +415,7 @@ pub fn songs_pending_data(library: State<'_, SongLibrary>, id: i64) -> Result<Re
 pub fn songs_apply_pending(library: State<'_, SongLibrary>, id: i64) -> Result<SongRecord, String> {
     let data = std::fs::read(library.pending_path(id))
         .map_err(|_| tr!("この曲に未適用の編集はありません", "This song has no pending edits"))?;
-    if data.is_empty() {
-        return Err(tr!("編集後のファイルが空です", "The edited file is empty"));
-    }
-    let hash = format!("{:x}", Sha256::digest(&data));
-    let path = library.path_for(&hash);
-    let tmp = path.with_extension("part");
-    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-
-    let db = library.lock()?;
-    // Duration and track count are what the old version measured; opening the
-    // new one replaces them.
-    db.execute(
-        "UPDATE songs
-         SET previous_hash = hash, hash = ?2, bytes = ?3, duration = 0, track_count = 0
-         WHERE id = ?1",
-        params![id, hash, data.len() as i64],
-    )
-    .map_err(|e| e.to_string())?;
-    let record = get(&db, id)?;
-    drop(db);
+    let record = library.commit(id, &data)?;
     discard_pending(&library, id);
     Ok(record)
 }

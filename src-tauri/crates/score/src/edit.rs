@@ -26,7 +26,7 @@ impl Score {
         }
     }
 
-    fn recount(&mut self) {
+    pub(crate) fn recount(&mut self) {
         self.end_tick = self
             .tracks
             .iter()
@@ -300,10 +300,44 @@ impl Score {
         for k in &mut self.key_signatures {
             k.tick = moved(k.tick);
         }
-        // A change at tick 0 must stay there, and duplicates are meaningless.
-        self.tempos.dedup_by_key(|t| t.tick);
-        self.time_signatures.dedup_by_key(|t| t.tick);
+        // Changes from a deleted span land on its start; of those, the last
+        // is the one in effect from there on.
+        keep_last(&mut self.tempos, |t| t.tick);
+        keep_last(&mut self.time_signatures, |t| t.tick);
+        keep_last(&mut self.key_signatures, |k| k.tick);
         self.recount();
+    }
+}
+
+impl Score {
+    /// The start of a new song made from this one: `tracks` (all of them if
+    /// None), over bars `from..=to`, with the tempo, meter and key in effect.
+    pub fn excerpt(&self, tracks: Option<&[usize]>, from: u32, to: u32) -> Result<Score, String> {
+        if to < from {
+            return Err("to_bar must be at least from_bar.".into());
+        }
+        let count = self.bars().count;
+        if from > count {
+            return Err(format!("This song ends at bar {count}."));
+        }
+        let mut out = self.clone();
+        if let Some(list) = tracks {
+            if list.is_empty() {
+                return Err("Choose at least one track.".into());
+            }
+            for &t in list {
+                self.check_track(t)?;
+            }
+            out.tracks = list.iter().map(|&t| self.tracks[t].clone()).collect();
+        }
+        if to < count {
+            out.delete_bars(to + 1, count)?;
+        }
+        if from > 1 {
+            out.delete_bars(1, from - 1)?;
+        }
+        out.recount();
+        Ok(out)
     }
 }
 
@@ -322,7 +356,7 @@ fn bpm_to_us(bpm: f64) -> u32 {
 }
 
 /// "bar 3" or "bars 3–5", for the summaries.
-fn bar_span(from: u32, to: u32) -> String {
+pub(crate) fn bar_span(from: u32, to: u32) -> String {
     if from == to {
         format!("bar {from}")
     } else {
@@ -331,7 +365,7 @@ fn bar_span(from: u32, to: u32) -> String {
 }
 
 /// "1 note" or "3 notes".
-fn note_count(n: usize) -> String {
+pub(crate) fn note_count(n: usize) -> String {
     if n == 1 {
         "1 note".into()
     } else {
@@ -346,7 +380,7 @@ impl Score {
     /// Not an error: a "String Ensemble" patch may stand in for anything, and
     /// refusing the write would be worse than saying so. But a model cannot
     /// hear that the flute has been sent below middle C, so it has to be told.
-    fn out_of_range(&self, track: usize, from: u32, to: u32) -> String {
+    pub(crate) fn out_of_range(&self, track: usize, from: u32, to: u32) -> String {
         let Some(part) = self.tracks.get(track) else {
             return String::new();
         };
@@ -391,6 +425,13 @@ impl Score {
 /// range would stack a whole passage's worth of them on the seam; simply
 /// dropping them could leave the pedal down for the rest of the piece. So the
 /// last value of each controller survives, at the cut, and the rest goes.
+/// Of changes that share a tick, keep the last (the list is in time order).
+fn keep_last<T>(list: &mut Vec<T>, tick: impl Fn(&T) -> u32) {
+    list.reverse();
+    list.dedup_by_key(|x| tick(x));
+    list.reverse();
+}
+
 fn collapse(events: &mut Passthrough, start: u32, end: u32) {
     use midly::{MidiMessage, TrackEventKind};
 
@@ -576,7 +617,7 @@ impl Score {
 /// Keep only the top or bottom note of each chord. Notes played together are
 /// found the same way they are when a passage is written down, so a rolled
 /// chord counts as one chord.
-fn pick_voice(notes: &[Note], voice: Voice, ppq: u32) -> Vec<Note> {
+pub(crate) fn pick_voice(notes: &[Note], voice: Voice, ppq: u32) -> Vec<Note> {
     if voice == Voice::All {
         return notes.to_vec();
     }

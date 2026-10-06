@@ -4,10 +4,13 @@ mod asset_cache;
 mod chat;
 mod control;
 mod engine;
+mod export;
 mod i18n;
 mod instruments;
 mod library;
 mod mcp_setup;
+mod paste;
+mod pdf;
 mod songs;
 mod spatial;
 
@@ -58,6 +61,9 @@ pub fn run() {
             engine::engine_set_track_instrument,
             engine::plugin_list,
             engine::plugin_open_editor,
+            export::score_tracks,
+            export::score_musicxml,
+            export::export_write_text,
             i18n::system_language,
             i18n::set_language,
             library::library_list,
@@ -67,6 +73,7 @@ pub fn run() {
             library::synth_presets,
             library::library_user_instruments,
             library::library_add_user_instrument,
+            paste::songs_paste,
             songs::songs_list,
             songs::songs_import,
             songs::songs_data,
@@ -86,6 +93,7 @@ pub fn run() {
             mcp_setup::mcp_status,
             mcp_setup::mcp_connect,
             mcp_setup::mcp_disconnect,
+            pdf::pdf_write,
             chat::chat_status,
             chat::chat_list,
             chat::chat_messages,

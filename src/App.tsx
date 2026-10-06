@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import ChatPanel from "@/components/ChatPanel";
+import ExportDialog, { type ExportTarget } from "@/components/ExportDialog";
 import PendingBar from "@/components/PendingBar";
 import Player from "@/components/Player";
 import Sidebar from "@/components/Sidebar";
 import type { PlayerState } from "@/lib/midiEngine";
 import type { RollSelection } from "@/lib/rollSelection";
 import { useI18n } from "@/lib/i18n";
-import { libraryAvailable } from "@/lib/songsApi";
+import { libraryAvailable, type PasteRequest, type RollClip } from "@/lib/songsApi";
 import { useSongLibrary } from "@/lib/useSongLibrary";
 
 export default function App() {
@@ -21,6 +22,40 @@ export default function App() {
   const [chatWidth, setChatWidth] = useState(() => Number(readPref("otomo.chat.width", "360")) || 360);
 
   useEffect(() => writePref("otomo.chat.open", chatOpen ? "1" : "0"), [chatOpen]);
+  const [exporting, setExporting] = useState<ExportTarget | null>(null);
+  // What ⌘V pastes: a piano-roll range, from this song or any other.
+  const [clip, setClip] = useState<RollClip | null>(null);
+  const [toast, setToast] = useState<{ text: string; undo?: number } | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), toast.undo != null ? 8000 : 4000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+  const copy = useCallback(
+    (next: RollClip) => {
+      setClip(next);
+      setToast({ text: t.paste.copied });
+    },
+    [t]
+  );
+  const { paste, undoEdit } = library;
+  const pasteClip = useCallback(
+    async (request: PasteRequest) => {
+      const result = await paste(request);
+      if (!result) return false;
+      // A saved paste can be taken back; one that joined Claude's edits goes with them.
+      setToast({ text: t.paste.pasted(result.notes), undo: result.staged ? undefined : request.toId });
+      return true;
+    },
+    [paste, t]
+  );
+  const { source } = library;
+  // What is on screen is what gets exported, Claude's staged edits included.
+  const exportSong = useCallback(
+    (song: { id: number; title: string }) =>
+      setExporting({ id: song.id, title: song.title, staged: source?.id === song.id && source.staged === true }),
+    [source]
+  );
   // Piano-roll ranges waiting in the chat box.
   const [attachments, setAttachments] = useState<RollSelection[]>([]);
   const attach = useCallback((sel: Omit<RollSelection, "id" | "excluded">) => {
@@ -103,6 +138,10 @@ export default function App() {
         e.preventDefault();
         void openFiles();
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "e" && libraryAvailable() && source) {
+        e.preventDefault();
+        exportSong(source);
+      }
       // ⌘L, as in Cursor: show or hide Claude.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
         e.preventDefault();
@@ -111,11 +150,11 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [openFiles]);
+  }, [openFiles, exportSong, source]);
 
   return (
     <div className={`shell${dropping ? " dropping" : ""}`}>
-      <Sidebar library={library} playing={state === "playing"} />
+      <Sidebar library={library} playing={state === "playing"} onExport={exportSong} />
       <main className="content">
         {/* With a song open the toolbar is the drag region; without one,
             this strip keeps the window movable from the content side. */}
@@ -142,6 +181,11 @@ export default function App() {
           stopRequest={stopRequest}
           onOpenFiles={openFiles}
           onAttachSelection={libraryAvailable() ? attach : undefined}
+          onExport={libraryAvailable() && source ? () => exportSong(source) : undefined}
+          clip={clip}
+          onCopy={libraryAvailable() ? copy : undefined}
+          onPaste={libraryAvailable() ? pasteClip : undefined}
+          pasteStaged={library.pending.some((p) => p.songId === source?.id)}
         />
       </main>
       {libraryAvailable() && (
@@ -154,6 +198,24 @@ export default function App() {
           attachments={attachments}
           onAttachmentsChange={setAttachments}
         />
+      )}
+      {exporting && <ExportDialog target={exporting} onClose={() => setExporting(null)} />}
+      {toast && (
+        <div className="toast" role="status">
+          {toast.text}
+          {toast.undo != null && (
+            <button
+              className="link-btn"
+              onClick={() => {
+                const id = toast.undo!;
+                setToast(null);
+                void undoEdit(id);
+              }}
+            >
+              {t.paste.undo}
+            </button>
+          )}
+        </div>
       )}
       {dropping && (
         <div className="drop-overlay">

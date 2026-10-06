@@ -36,10 +36,12 @@ interface MenuState {
 export default function Sidebar({
   library,
   playing,
+  onExport,
 }: {
   library: SongLibrary;
   /** Whether the current song is sounding, for the row indicator. */
   playing: boolean;
+  onExport: (song: SongRecord) => void;
 }) {
   const { t } = useI18n();
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -178,6 +180,14 @@ export default function Sidebar({
               {t.sidebar.undoEdit}
             </button>
           )}
+          <button
+            onClick={() => {
+              onExport(menu.song);
+              setMenu(null);
+            }}
+          >
+            {t.sidebar.exportScore}
+          </button>
           {menu.song.sourcePath && (
             <button
               onClick={() => {

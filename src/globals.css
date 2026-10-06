@@ -2623,3 +2623,368 @@ body.resizing {
     animation: none;
   }
 }
+
+/* ---------- Score export ---------- */
+.export-modal {
+  width: min(1040px, 100%);
+  height: min(760px, 100%);
+  padding: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  overflow: hidden;
+}
+
+.export-options {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 18px 18px 16px 20px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+.export-options .modal-head {
+  margin-bottom: -8px;
+}
+
+.export-song {
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.export-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.export-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.export-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+}
+
+.export-label-row .export-label {
+  flex: 1;
+}
+
+.export-label-row .link-btn {
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.export-note {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.export-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.export-radios label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.export-tracks-field {
+  min-height: 0;
+}
+
+.export-tracks {
+  list-style: none;
+  width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.export-tracks label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.export-tracks li + li {
+  border-top: 1px solid var(--border);
+}
+
+.export-track-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-track-inst {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.export-transpose {
+  align-items: flex-start;
+  margin: 0;
+}
+
+.export-transpose input {
+  margin-top: 2px;
+}
+
+.export-error {
+  margin: 0;
+  font-size: 12px;
+}
+
+.export-saved {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.export-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.export-actions .btn-filled {
+  padding: 5px 14px;
+  font-size: 12px;
+}
+
+.export-preview {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-2);
+}
+
+.export-preview-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 18px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.export-preview-label {
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.export-preview-count {
+  font-weight: 400;
+}
+
+.export-preview-busy {
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--accent);
+}
+
+.export-pages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 24px 24px;
+  transition: opacity 0.15s ease;
+}
+
+.export-pages.is-stale {
+  opacity: 0.55;
+}
+
+.export-page {
+  width: min(100%, 560px);
+  flex: none;
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.export-page.is-a4 {
+  aspect-ratio: 210 / 297;
+}
+
+.export-page.is-letter {
+  aspect-ratio: 216 / 279;
+}
+
+.export-empty {
+  margin: auto;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ---------- Paste ---------- */
+.paste-modal {
+  width: min(460px, 100%);
+}
+
+.paste-source {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+  overflow-wrap: anywhere;
+}
+
+.paste-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.paste-grid > .export-label {
+  align-self: start;
+  padding-top: 5px;
+}
+
+.paste-position {
+  display: flex;
+  gap: 14px;
+}
+
+.paste-position label,
+.paste-transpose {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.paste-modal input[type="number"],
+.paste-modal select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+}
+
+.paste-modal input[type="number"] {
+  width: 64px;
+}
+
+.paste-tracks {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.paste-tracks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.paste-from {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paste-arrow {
+  color: var(--text-faint);
+}
+
+.paste-tracks select {
+  flex: 1;
+  min-width: 0;
+}
+
+.paste-modal .export-actions {
+  margin-top: 16px;
+}
+
+/* A two-button bar over a piano-roll selection. */
+.roll-selection-actions {
+  position: absolute;
+  top: -26px;
+  right: -1px;
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.roll-selection-actions .roll-selection-btn {
+  position: static;
+}
+
+.roll-selection-btn.is-quiet {
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--border-strong);
+}
+
+.roll-selection-btn.is-quiet:hover {
+  background: var(--hover);
+}
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 60;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--menu);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  color: var(--text);
+}

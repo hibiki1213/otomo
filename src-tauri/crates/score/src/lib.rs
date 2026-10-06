@@ -9,18 +9,22 @@
 //! Track numbering deliberately matches what the app's UI shows: one track
 //! per SMF track that contains notes, in file order.
 
+mod clip;
 mod edit;
 mod gm;
 mod harmony;
 mod musicxml;
+mod notation;
 mod parse_text;
 mod text;
 mod write;
 
+pub use clip::Clip;
 pub use edit::Voice;
 pub use harmony::{analyse as analyse_harmony, Chord};
 pub use gm::{drum_key, drum_name, program_name, program_number, range as program_range};
 pub use musicxml::{is_musicxml, read_musicxml, MusicXml};
+pub use notation::{to_musicxml, ExportOptions};
 pub use parse_text::parse_note_name;
 pub use text::{note_name, render_bars, suggest_grid, BarLine, Grid};
 

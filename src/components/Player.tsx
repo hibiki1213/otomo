@@ -22,11 +22,15 @@ import { RustEngine } from "@/lib/rustEngine";
 import AcousticsBar from "@/components/AcousticsBar";
 import InstrumentPicker from "@/components/InstrumentPicker";
 import LibraryManager from "@/components/LibraryManager";
+import PasteDialog from "@/components/PasteDialog";
+import type { PasteRequest, RollClip } from "@/lib/songsApi";
 import { useTrackInstruments } from "@/lib/useTrackInstruments";
 import type { BarBeat, RollSelection } from "@/lib/rollSelection";
 
 /** A piano-roll range, before it knows which song entry it belongs to. */
 export type RollSelectionDraft = Omit<RollSelection, "id" | "songId" | "songTitle" | "excluded">;
+/** A copied range before the song it came from is attached. */
+export type RollClipDraft = Omit<RollClip, "songId" | "songTitle" | "staged">;
 
 type EngineKind = "native" | "web";
 
@@ -112,8 +116,18 @@ interface BarBoundary {
   bar: number;
 }
 
-// Build the (beat, bar-number) boundaries that respect any time-signature
-// changes in the file. Returns *all* bar starts within [0, totalBeats].
+/**
+ * The (beat, bar-number) boundaries the time signatures make, within
+ * [0, totalBeats].
+ *
+ * Same rule as the Rust side (`BarMap` in src-tauri/crates/score), so that a
+ * bar number means the same here as in what Claude reads and writes: a
+ * signature change takes effect at the next bar line of the signature in
+ * force, and of two changes inside one bar the later wins. Files that put a
+ * change mid-bar exist (a 1/4 pickup with 4/4 starting half-way through it);
+ * starting the new bars right there would put every later bar off by the rest
+ * of that bar.
+ */
 function buildBarMap(
   timeSignatures: TimeSignatureEvent[],
   map: TempoMap
@@ -121,28 +135,54 @@ function buildBarMap(
   const sigs = timeSignatures
     .map((s) => ({ ...s, startBeat: timeToBeat(map, s.time) }))
     .sort((a, b) => a.startBeat - b.startBeat);
+  // Spans of bars under one signature: first bar (0-based), start beat, bar length.
+  const spans: { first: number; start: number; perBar: number }[] = [];
+  for (const s of sigs) {
+    const perBar = s.numerator * (4 / s.denominator);
+    const prev = spans[spans.length - 1];
+    let first = 0;
+    let start = 0;
+    if (prev) {
+      const bars = Math.ceil(Math.max(0, s.startBeat - prev.start) / prev.perBar - 1e-6);
+      first = prev.first + bars;
+      start = prev.start + bars * prev.perBar;
+    }
+    if (prev && prev.first === first) spans.pop();
+    spans.push({ first, start, perBar });
+  }
   const total = map.totalBeats;
   const bars: BarBoundary[] = [];
-  let barIdx = 0;
-  for (let i = 0; i < sigs.length; i++) {
-    const start = sigs[i].startBeat;
-    const end = i + 1 < sigs.length ? sigs[i + 1].startBeat : total;
-    const beatsPerBar = sigs[i].numerator * (4 / sigs[i].denominator);
-    for (let b = start; b < end - 1e-6; b += beatsPerBar) {
-      bars.push({ beat: b, bar: barIdx++ });
+  for (let i = 0; i < spans.length; i++) {
+    const { first, start, perBar } = spans[i];
+    const end = i + 1 < spans.length ? spans[i + 1].start : total;
+    for (let k = 0, b = start; b < end - 1e-6; k++, b = start + k * perBar) {
+      bars.push({ beat: b, bar: first + k });
     }
   }
+  if (bars.length === 0) bars.push({ beat: 0, bar: 0 });
   const beatsPerBarAt = (beat: number): number => {
-    let s = sigs[0];
-    for (let i = sigs.length - 1; i >= 0; i--) {
-      if (sigs[i].startBeat <= beat) {
-        s = sigs[i];
-        break;
-      }
+    let span = spans[0];
+    for (const s of spans) {
+      if (s.start <= beat + 1e-6) span = s;
+      else break;
     }
-    return s.numerator * (4 / s.denominator);
+    return span?.perBar ?? 4;
   };
   return { bars, beatsPerBarAt };
+}
+
+/** Where 1-based `bar` starts, in quarter notes; past the end, bars of the last length. */
+function beatOfBar(song: SongInfo, bar: number): number {
+  const { bars, beatsPerBarAt } = buildBarMap(song.timeSignatures, buildTempoMap(song.tempos, song.duration));
+  if (bar <= bars.length) return bars[Math.max(0, bar - 1)].beat;
+  const last = bars[bars.length - 1];
+  return last.beat + (bar - bars.length) * beatsPerBarAt(last.beat);
+}
+
+/** The bar the playhead is in. */
+function playheadBar(song: SongInfo, seconds: number): number {
+  const tempo = buildTempoMap(song.tempos, song.duration);
+  return beatPosition(buildBarMap(song.timeSignatures, tempo).bars, timeToBeat(tempo, seconds)).bar;
 }
 
 /** A beat (quarter notes from the start) as 1-based bar and beat-in-bar. */
@@ -238,6 +278,11 @@ export default function Player({
   onOpenFiles,
   stopRequest,
   onAttachSelection,
+  onExport,
+  clip,
+  onCopy,
+  onPaste,
+  pasteStaged,
 }: {
   source: SongSource | null;
   /** Reports what opening the song revealed, for the library entry. */
@@ -248,6 +293,15 @@ export default function Player({
   stopRequest: number;
   /** Hands a piano-roll range to the chat; absent when there is no chat. */
   onAttachSelection?: (sel: Omit<RollSelection, "id" | "excluded">) => void;
+  /** Opens the score export; absent outside the app (no library). */
+  onExport?: () => void;
+  /** What ⌘V would paste, copied from this song or another. */
+  clip?: RollClip | null;
+  onCopy?: (clip: RollClip) => void;
+  /** Resolves true once pasted. */
+  onPaste?: (request: PasteRequest) => Promise<boolean>;
+  /** Claude has edits waiting on the open song (a paste joins them). */
+  pasteStaged?: boolean;
 }) {
   const { t } = useI18n();
   const engineRef = useRef<PlaybackEngine | null>(null);
@@ -533,6 +587,32 @@ export default function Player({
       });
   }, [onAttachSelection, songId, source, song]);
 
+  const copySelection = useMemo(() => {
+    if (!onCopy || songId == null) return undefined;
+    return (draft: RollClipDraft) =>
+      onCopy({
+        ...draft,
+        songId,
+        songTitle: source?.title ?? song?.name.replace(/\.midi?$/i, "") ?? "",
+        staged: source?.staged === true,
+      });
+  }, [onCopy, songId, source, song]);
+
+  // ⌘V: paste what was copied, at the playhead's bar.
+  const [pasting, setPasting] = useState(false);
+  useEffect(() => {
+    if (!clip || !onPaste || !song || songId == null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "v") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      e.preventDefault();
+      setPasting(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clip, onPaste, song, songId]);
+
   const trackList = useMemo(() => {
     if (!song) return null;
     return (
@@ -718,6 +798,7 @@ export default function Player({
             onSkip={skip}
             onVolume={onVolume}
             onOpen={onOpenFiles}
+            onExport={onExport}
           />
 
           {engineKind === "native" && (
@@ -736,6 +817,7 @@ export default function Player({
             onSeek={seekTo}
             getLivePosition={getLivePosition}
             onAttach={attachSelection}
+            onCopy={copySelection}
           />
 
           {trackList}
@@ -774,6 +856,20 @@ export default function Player({
             )}
           </div>
         </>
+      )}
+
+      {pasting && clip && onPaste && song && songId != null && (
+        <PasteDialog
+          clip={clip}
+          songId={songId}
+          tracks={song.tracks.map((tr) => ({ index: tr.index, name: tr.name }))}
+          defaultBar={playheadBar(song, position)}
+          barCount={buildBarMap(song.timeSignatures, buildTempoMap(song.tempos, song.duration)).bars.length}
+          staged={pasteStaged === true}
+          toBeat={(bar, beat) => beatOfBar(song, bar) + beat - 1}
+          onPaste={onPaste}
+          onClose={() => setPasting(false)}
+        />
       )}
 
       {showLibrary && engineKind === "native" && (
@@ -897,6 +993,7 @@ function Toolbar({
   onSkip,
   onVolume,
   onOpen,
+  onExport,
 }: {
   song: SongInfo;
   /** The library's name for the song, which the user can rename. */
@@ -912,6 +1009,7 @@ function Toolbar({
   onSkip: (delta: number) => void;
   onVolume: (v: number) => void;
   onOpen: () => void;
+  onExport?: () => void;
 }) {
   const { t } = useI18n();
   const tempoVaries = song.bpmMin !== song.bpmMax;
@@ -1027,6 +1125,11 @@ function Toolbar({
       <button className="btn-ghost" onClick={onOpen}>
         {t.player.open}
       </button>
+      {onExport && (
+        <button className="btn-ghost" onClick={onExport} title={t.player.exportScoreTitle}>
+          {t.player.exportScore}
+        </button>
+      )}
     </div>
   );
 }
@@ -1049,6 +1152,7 @@ function PianoRoll({
   onSeek,
   getLivePosition,
   onAttach,
+  onCopy,
 }: {
   song: SongInfo;
   position: number;
@@ -1058,6 +1162,8 @@ function PianoRoll({
   getLivePosition: () => number;
   /** Drag in the notes area selects a range for this; a click still seeks. */
   onAttach?: (sel: RollSelectionDraft) => void;
+  /** …or to copy it (⌘C). */
+  onCopy?: (clip: RollClipDraft) => void;
 }) {
   const { t } = useI18n();
   const mainRef = useRef<HTMLDivElement | null>(null);
@@ -1597,6 +1703,49 @@ function PianoRoll({
     [scrollX, pxPerSec, song.duration, padded, tempoMap]
   );
 
+  const copySelection = () => {
+    if (!sel || !onCopy) return;
+    const t0 = beatToTime(tempoMap, sel.b0);
+    const t1 = beatToTime(tempoMap, sel.b1);
+    const used = new Map<number, number>();
+    for (const n of song.notes) {
+      if (n.time < t0 - 1e-6) continue;
+      if (n.time >= t1 - 1e-6) break;
+      if (n.midi < sel.lo || n.midi > sel.hi) continue;
+      used.set(n.trackIndex, (used.get(n.trackIndex) ?? 0) + 1);
+    }
+    if (used.size === 0) return;
+    onCopy({
+      startBeat: sel.b0,
+      endBeat: sel.b1,
+      start: beatPosition(barMap.bars, sel.b0),
+      end: beatPosition(barMap.bars, sel.b1 - 1),
+      lo: sel.lo,
+      hi: sel.hi,
+      tracks: song.tracks
+        .filter((tr) => used.has(tr.index))
+        .map((tr) => ({ index: tr.index, name: tr.name || tr.instrument })),
+      noteCount: [...used.values()].reduce((a, b) => a + b, 0),
+    });
+  };
+
+  // ⌘C copies the selection.
+  const copyRef = useRef(copySelection);
+  copyRef.current = copySelection;
+  useEffect(() => {
+    if (!sel || !onCopy) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "c") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (window.getSelection()?.toString()) return;
+      e.preventDefault();
+      copyRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sel, onCopy]);
+
   const attachSelection = () => {
     if (!sel || !onAttach) return;
     const t0 = beatToTime(tempoMap, sel.b0);
@@ -1775,7 +1924,7 @@ function PianoRoll({
         className="roll-main"
         onPointerDown={(e) => {
           (e.target as Element).setPointerCapture?.(e.pointerId);
-          const p = onAttach ? pointAt(e.clientX, e.clientY) : null;
+          const p = onAttach || onCopy ? pointAt(e.clientX, e.clientY) : null;
           if (p && p.y >= RULER_H) {
             selDragRef.current = { beat: p.beat, midi: p.midi, x: e.clientX, y: e.clientY, moved: false };
             draggingRef.current = "select";
@@ -1789,14 +1938,18 @@ function PianoRoll({
         <div ref={playheadRef} className="roll-playhead" />
         {selBox && (
           <div className="roll-selection" style={selBox}>
-            <button
-              className="roll-selection-btn"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={attachSelection}
-              title={t.roll.attachTitle}
-            >
-              {t.roll.attach}
-            </button>
+            <div className="roll-selection-actions" onPointerDown={(e) => e.stopPropagation()}>
+              {onCopy && (
+                <button className="roll-selection-btn is-quiet" onClick={copySelection} title={t.roll.copyTitle}>
+                  {t.roll.copy}
+                </button>
+              )}
+              {onAttach && (
+                <button className="roll-selection-btn" onClick={attachSelection} title={t.roll.attachTitle}>
+                  {t.roll.attach}
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1870,6 +2023,7 @@ function ViewSwitcher({
   onSeek,
   getLivePosition,
   onAttach,
+  onCopy,
 }: {
   primary: PrimaryView;
   onPrimaryChange: (v: PrimaryView) => void;
@@ -1882,6 +2036,7 @@ function ViewSwitcher({
   onSeek: (ratio: number) => void;
   getLivePosition: () => number;
   onAttach?: (sel: RollSelectionDraft) => void;
+  onCopy?: (clip: RollClipDraft) => void;
 }) {
   const { t } = useI18n();
   return (
@@ -1917,6 +2072,7 @@ function ViewSwitcher({
           onSeek={onSeek}
           getLivePosition={getLivePosition}
           onAttach={onAttach}
+          onCopy={onCopy}
         />
       )}
       {primary === "score" && (
