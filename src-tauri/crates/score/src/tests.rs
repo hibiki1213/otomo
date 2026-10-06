@@ -268,7 +268,7 @@ fn writing_the_same_range_twice_replaces_rather_than_piles_up() {
 
     let summary = score.write_bars(0, 1, 1, "E4@1:4").expect("replace");
     assert_eq!(score.tracks[0].notes.len(), 1);
-    assert!(summary.contains("2音 → 1音"), "{summary}");
+    assert!(summary.contains("2 notes → 1 note"), "{summary}");
 
     // Clearing a range leaves the rest alone.
     score.write_bars(0, 2, 2, "G4@1:4").expect("bar 2");
@@ -283,14 +283,14 @@ fn edits_refuse_what_they_cannot_do_and_say_why() {
     score.add_track(0, "Piano", false);
 
     let err = score.write_bars(0, 1, 2, "b7  C4@1:1").unwrap_err();
-    assert!(err.contains("7小節目") && err.contains("範囲"), "{err}");
+    assert!(err.contains("Bar 7") && err.contains("range"), "{err}");
     let err = score.write_bars(0, 1, 1, "C4@5:1").unwrap_err();
-    assert!(err.contains("4/4") && err.contains("拍は"), "{err}");
-    assert!(score.write_bars(0, 3, 1, "").unwrap_err().contains("from_bar 以上"));
-    assert!(score.set_tempo(0.0, 1).unwrap_err().contains("10〜400"));
-    assert!(score.set_time_signature(4, 5, 1).unwrap_err().contains("2の冪"));
-    assert!(score.set_key(9, false).unwrap_err().contains("-7〜7"));
-    assert!(score.remove_track(3).unwrap_err().contains("0〜0"));
+    assert!(err.contains("4/4") && err.contains("beats must"), "{err}");
+    assert!(score.write_bars(0, 3, 1, "").unwrap_err().contains("at least from_bar"));
+    assert!(score.set_tempo(0.0, 1).unwrap_err().contains("between 10 and 400"));
+    assert!(score.set_time_signature(4, 5, 1).unwrap_err().contains("power of two"));
+    assert!(score.set_key(9, false).unwrap_err().contains("-7 to 7"));
+    assert!(score.remove_track(3).unwrap_err().contains("0–0"));
 }
 
 #[test]
@@ -434,7 +434,7 @@ fn orchestrating_is_copying_a_part_around() {
     // The cellos take the bass line where it stands.
     let summary = score.copy_bars(0, 2, 1, 2, 1, 0, Voice::Bottom, false).expect("bass");
     assert_eq!(rendered(&score, 2, 1, 2), vec!["C3@1:4", "F3@1:4"]);
-    assert!(summary.contains("Cello") && summary.contains("2音"), "{summary}");
+    assert!(summary.contains("Cello") && summary.contains("2 notes"), "{summary}");
 
     // Copying a passage later in the piece leaves the original alone.
     score.copy_bars(0, 0, 1, 2, 3, 0, Voice::All, false).expect("repeat");
@@ -447,8 +447,8 @@ fn orchestrating_is_copying_a_part_around() {
     score.copy_bars(0, 1, 1, 1, 1, 0, Voice::Bottom, true).expect("double");
     assert_eq!(rendered(&score, 1, 1, 1), vec!["[C3 C6]@1:4"], "an octave doubling");
 
-    assert!(score.copy_bars(0, 1, 1, 2, 1, 96, Voice::Top, false).unwrap_err().contains("音域"));
-    assert!(score.copy_bars(1, 2, 90, 92, 1, 0, Voice::All, false).unwrap_err().contains("音がありません"));
+    assert!(score.copy_bars(0, 1, 1, 2, 1, 96, Voice::Top, false).unwrap_err().contains("out of range"));
+    assert!(score.copy_bars(1, 2, 90, 92, 1, 0, Voice::All, false).unwrap_err().contains("has no notes"));
 }
 
 #[test]
@@ -487,8 +487,8 @@ fn a_whole_page_of_score_goes_in_one_call() {
     assert_eq!(rendered(&copy, 0, 1, 2), rendered(&score, 0, 1, 2));
     assert_eq!(rendered(&copy, 2, 1, 2), rendered(&score, 2, 1, 2));
 
-    assert!(score.write_score(1, 2, "C4@1:1").unwrap_err().contains("見出し"));
-    assert!(score.write_score(1, 2, "[9] Nope\nC4@1:1").unwrap_err().contains("0〜2"));
+    assert!(score.write_score(1, 2, "C4@1:1").unwrap_err().contains("header"));
+    assert!(score.write_score(1, 2, "[9] Nope\nC4@1:1").unwrap_err().contains("0–2"));
 }
 
 #[test]
@@ -598,7 +598,7 @@ fn a_pickup_is_written_as_a_short_first_bar() {
     assert_eq!(reloaded.bars().time_signature(1), (1, 4));
     assert_eq!(reloaded.bars().time_signature(2), (4, 4));
 
-    assert!(score.set_pickup(4.0).unwrap_err().contains("短く"));
+    assert!(score.set_pickup(4.0).unwrap_err().contains("shorter"));
 }
 
 #[test]
@@ -654,7 +654,7 @@ fn dynamics_shape_a_passage_and_a_swell_draws_a_curve() {
     assert!(score.tracks[0].passthrough.is_empty(), "no curve where nothing changes");
 
     let summary = score.set_dynamics(0, 1, 4, "p", Some("ff")).expect("crescendo");
-    assert!(summary.contains("クレッシェンド"), "{summary}");
+    assert!(summary.contains("crescendo"), "{summary}");
     let velocities: Vec<u8> = score.tracks[0].notes.iter().map(|n| n.velocity).collect();
     assert_eq!(velocities[0], 48);
     assert!(velocities.windows(2).all(|w| w[0] < w[1]), "rising: {velocities:?}");
@@ -671,7 +671,7 @@ fn dynamics_shape_a_passage_and_a_swell_draws_a_curve() {
     assert_eq!(score.tracks[0].passthrough.len(), before, "one curve, not two");
 
     assert!(score.set_dynamics(0, 1, 4, "loud", None).unwrap_err().contains("pp"));
-    assert!(score.set_dynamics(0, 9, 9, "f", None).unwrap_err().contains("音がありません"));
+    assert!(score.set_dynamics(0, 9, 9, "f", None).unwrap_err().contains("has no notes"));
 }
 
 #[test]

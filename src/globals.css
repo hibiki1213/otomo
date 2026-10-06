@@ -378,6 +378,30 @@ button:focus-visible,
   padding: 5px 2px 0;
 }
 
+/* ---------- Language ---------- */
+.lang-select {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.lang-select select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.lang-select:hover {
+  color: var(--text-dim);
+}
+
 /* ---------- Content pane ----------
    Edge to edge, like a native window: the bars inside already carry their own
    separators, so there is no card around them. */

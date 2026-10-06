@@ -1,3 +1,5 @@
+import { messages } from "./i18n";
+
 /**
  * A range the user drew on the piano roll (time × pitch), attached to a chat
  * message so "here" and "this register" mean something to Claude.
@@ -46,8 +48,9 @@ function num(n: number): string {
   return String(Math.round(n * 100) / 100);
 }
 
+/** "bar 5 beat 2" — how Claude is told a position. */
 function at(p: BarBeat): string {
-  return `${p.bar}小節${num(p.beat)}拍`;
+  return `bar ${p.bar} beat ${num(p.beat)}`;
 }
 
 function included(sel: RollSelection) {
@@ -58,34 +61,38 @@ function included(sel: RollSelection) {
   };
 }
 
-/** What the chip in the chat box says. */
+/** What the chip in the chat box says, in the current language. */
 export function selectionLabel(sel: RollSelection): string {
+  const t = messages().selection;
   const time =
     sel.start.bar === sel.end.bar
-      ? `${sel.start.bar}小節 ${num(sel.start.beat)}〜${num(sel.end.beat)}拍`
-      : `${at(sel.start)}〜${at(sel.end)}`;
+      ? t.withinBar(sel.start.bar, num(sel.start.beat), num(sel.end.beat))
+      : t.acrossBars(sel.start.bar, num(sel.start.beat), sel.end.bar, num(sel.end.beat));
   const range = sel.lo === sel.hi ? noteName(sel.lo) : `${noteName(sel.lo)}–${noteName(sel.hi)}`;
   const count = included(sel).notes.length;
-  return `${time} · ${range} · ${count ? `${count}音` : "空"}`;
+  return `${time} · ${range} · ${count ? t.notes(count) : t.empty}`;
 }
 
 /** How many notes are spelled out before handing over to read_bars. */
 const NOTE_LIMIT = 160;
 
-/** What Claude is told about the range (number `n` in this message). */
+/**
+ * What Claude is told about the range (number `n` in this message). English
+ * whatever the display language, like everything else Claude reads.
+ */
 export function selectionContext(sel: RollSelection, n: number): string {
   const { tracks, notes } = included(sel);
   const lines = [
-    `[選択範囲 ${n}] 曲「${sel.songTitle}」${sel.songId != null ? `（song_id: ${sel.songId}）` : ""}`,
-    `時間: ${at(sel.start)}目 〜 ${at(sel.end)}目の終わりまで`,
-    `音域: ${noteName(sel.lo)}（MIDI ${sel.lo}）〜 ${noteName(sel.hi)}（MIDI ${sel.hi}）`,
+    `[Selection ${n}] Song "${sel.songTitle}"${sel.songId != null ? ` (song_id: ${sel.songId})` : ""}`,
+    `Time: from ${at(sel.start)} to the end of ${at(sel.end)}`,
+    `Pitch: ${noteName(sel.lo)} (MIDI ${sel.lo}) to ${noteName(sel.hi)} (MIDI ${sel.hi})`,
   ];
   if (tracks.length === 0) {
-    lines.push("トラック: 指定なし（この範囲に音はない）");
+    lines.push("Tracks: none (no notes in this range)");
     return lines.join("\n");
   }
-  lines.push(`トラック: ${tracks.map((t) => `${t.index}「${t.name}」`).join("、")}`);
-  lines.push(`範囲内の音: ${notes.length}個（小節:拍 音名 長さ[拍]）`);
+  lines.push(`Tracks: ${tracks.map((t) => `${t.index} "${t.name}"`).join(", ")}`);
+  lines.push(`Notes in range: ${notes.length} (bar:beat pitch length[beats])`);
   let shown = 0;
   for (const t of tracks) {
     const own = notes.filter((x) => x.track === t.index);
@@ -94,12 +101,12 @@ export function selectionContext(sel: RollSelection, n: number): string {
     const listed = own.slice(0, room);
     shown += listed.length;
     lines.push(
-      `  トラック${t.index}: ` +
+      `  Track ${t.index}: ` +
         listed.map((x) => `${x.at.bar}:${num(x.at.beat)} ${noteName(x.midi)} ${num(x.beats)}`).join(", ")
     );
   }
   if (shown < notes.length) {
-    lines.push(`  ほか ${notes.length - shown}個は省略（read_bars で確認）`);
+    lines.push(`  ${notes.length - shown} more not listed (use read_bars)`);
   }
   return lines.join("\n");
 }

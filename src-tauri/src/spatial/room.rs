@@ -34,6 +34,7 @@ const SEAT_WET_CAP: [f64; 3] = [0.3, 1.0, 2.0];
 pub struct VenueSpec {
     pub id: &'static str,
     pub name: &'static str,
+    pub name_ja: &'static str,
     /// Room length (stage → back wall), width, height in metres.
     pub size: [f64; 3],
     pub rt60: [f64; 7],
@@ -51,7 +52,8 @@ pub struct VenueSpec {
 pub const VENUES: &[VenueSpec] = &[
     VenueSpec {
         id: "studio",
-        name: "レコーディングスタジオ",
+        name: "Recording studio",
+        name_ja: "レコーディングスタジオ",
         size: [12.0, 9.0, 4.5],
         rt60: [0.45, 0.42, 0.40, 0.38, 0.36, 0.33, 0.28],
         stage_depth: 3.0,
@@ -62,7 +64,8 @@ pub const VENUES: &[VenueSpec] = &[
     },
     VenueSpec {
         id: "club",
-        name: "ライブハウス",
+        name: "Live club",
+        name_ja: "ライブハウス",
         size: [20.0, 12.0, 4.5],
         rt60: [0.9, 0.8, 0.7, 0.65, 0.6, 0.55, 0.45],
         stage_depth: 2.5,
@@ -73,7 +76,8 @@ pub const VENUES: &[VenueSpec] = &[
     },
     VenueSpec {
         id: "chamber",
-        name: "室内楽ホール",
+        name: "Chamber music hall",
+        name_ja: "室内楽ホール",
         size: [30.0, 17.0, 11.0],
         rt60: [1.8, 1.7, 1.6, 1.5, 1.4, 1.25, 1.0],
         stage_depth: 4.0,
@@ -84,7 +88,8 @@ pub const VENUES: &[VenueSpec] = &[
     },
     VenueSpec {
         id: "concert",
-        name: "コンサートホール（大ホール）",
+        name: "Concert hall (large)",
+        name_ja: "コンサートホール（大ホール）",
         size: [50.0, 27.0, 19.0],
         rt60: [2.4, 2.25, 2.1, 2.0, 1.85, 1.6, 1.25],
         stage_depth: 6.0,
@@ -95,7 +100,8 @@ pub const VENUES: &[VenueSpec] = &[
     },
     VenueSpec {
         id: "cathedral",
-        name: "大聖堂",
+        name: "Cathedral",
+        name_ja: "大聖堂",
         size: [90.0, 32.0, 32.0],
         rt60: [6.5, 6.0, 5.4, 4.8, 4.0, 3.1, 2.1],
         stage_depth: 8.0,
@@ -120,7 +126,7 @@ pub struct VenueInfo {
 pub fn venue_list() -> Vec<VenueInfo> {
     VENUES
         .iter()
-        .map(|v| VenueInfo { id: v.id, name: v.name, rt60: v.rt60[3] })
+        .map(|v| VenueInfo { id: v.id, name: crate::i18n::pick(v.name_ja, v.name), rt60: v.rt60[3] })
         .collect()
 }
 

@@ -5,6 +5,7 @@ import type {
   SmplrRegion,
 } from "smplr";
 import { DrumSynth } from "./drumSynth";
+import { messages } from "./i18n";
 import { diskCacheStorage, fetchCachedArrayBuffer } from "./assetCache";
 import {
   prettyInstrumentName,
@@ -283,7 +284,7 @@ export interface TrackInfo {
   noteCount: number;
   color: string;
   programs: number[];
-  /** ユーザーが上書きした楽器プログラム（未指定なら元のMIDIの値）。 */
+  /** The program the user picked instead (the MIDI file's when unset). */
   program: number;
 }
 
@@ -570,6 +571,7 @@ export async function parseSong(
   const tracks: TrackInfo[] = [];
   let minMidi = 127;
   let maxMidi = 0;
+  const t = messages().midi;
 
   sourceTracks.forEach((track, index) => {
     const color = TRACK_COLORS[index % TRACK_COLORS.length];
@@ -632,11 +634,11 @@ export async function parseSong(
       channel,
       name:
         track.name?.trim() ||
-        (isPercussion ? "ドラム" : `トラック ${index + 1}`),
+        (isPercussion ? t.drums : t.track(index + 1)),
       instrument: isPercussion
-        ? "ドラム / パーカッション"
+        ? t.drumsAndPercussion
         : prettyInstrumentName(program),
-      family: isPercussion ? "ドラム" : instrumentFamily(program),
+      family: isPercussion ? t.drums : instrumentFamily(program),
       isPercussion,
       noteCount: track.notes.length,
       color,
@@ -748,7 +750,7 @@ export class MidiEngine implements PlaybackEngine {
   onState?: (s: PlayerState) => void;
   onTick?: (position: number) => void;
   onEnd?: () => void;
-  /** トラックの楽器変更が完了したときに呼ばれる。UI 更新用。 */
+  /** Called once a track's instrument change has finished, for the UI. */
   onTrackProgramChanged?: (trackIndex: number, program: number) => void;
 
   private setState(s: PlayerState) {

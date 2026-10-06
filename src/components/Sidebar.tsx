@@ -1,20 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import ClaudeConnection from "@/components/ClaudeConnection";
+import LanguageSelect from "@/components/LanguageSelect";
+import { useI18n } from "@/lib/i18n";
+import type { Messages } from "@/locales/en";
 import type { SongRecord } from "@/lib/songsApi";
 import type { SongLibrary } from "@/lib/useSongLibrary";
 
-/** "3分前", "昨日", "3月4日" — short enough for a sidebar row. */
-function whenLabel(unix: number | null): string {
-  if (!unix) return "未再生";
+/** "3 min ago", "Yesterday", "Mar 4" — short enough for a sidebar row. */
+function whenLabel(unix: number | null, t: Messages): string {
+  if (!unix) return t.sidebar.neverPlayed;
   const d = new Date(unix * 1000);
   const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-  if (mins < 1) return "たった今";
-  if (mins < 60) return `${mins}分前`;
-  if (mins < 60 * 24) return `${Math.floor(mins / 60)}時間前`;
-  if (mins < 60 * 48) return "昨日";
-  if (mins < 60 * 24 * 7) return `${Math.floor(mins / 1440)}日前`;
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
+  if (mins < 1) return t.common.justNow;
+  if (mins < 60) return t.common.minutesAgo(mins);
+  if (mins < 60 * 24) return t.common.hoursAgo(Math.floor(mins / 60));
+  if (mins < 60 * 48) return t.common.yesterday;
+  if (mins < 60 * 24 * 7) return t.common.daysAgo(Math.floor(mins / 1440));
+  return t.common.date(d);
 }
 
 function lengthLabel(seconds: number): string {
@@ -38,6 +41,7 @@ export default function Sidebar({
   /** Whether the current song is sounding, for the row indicator. */
   playing: boolean;
 }) {
+  const { t } = useI18n();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
 
@@ -89,7 +93,7 @@ export default function Sidebar({
             </span>
           )}
           <span className="song-sub">
-            {[lengthLabel(song.duration), whenLabel(song.lastPlayed)]
+            {[lengthLabel(song.duration), whenLabel(song.lastPlayed, t)]
               .filter(Boolean)
               .join(" · ")}
           </span>
@@ -106,13 +110,13 @@ export default function Sidebar({
       <div className="sidebar-search">
         <input
           type="search"
-          placeholder="検索"
+          placeholder={t.sidebar.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <button
           className="icon-btn"
-          title="MIDI ファイルを開く（⌘O）"
+          title={t.sidebar.openFiles}
           onClick={() => void library.openFiles()}
         >
           +
@@ -122,26 +126,25 @@ export default function Sidebar({
       <nav className="sidebar-list">
         {songs.length === 0 && (
           <p className="sidebar-empty">
-            {query
-              ? "見つかりませんでした"
-              : "MIDI をドロップすると、ここに残ります"}
+            {query ? t.sidebar.noMatches : t.sidebar.empty}
           </p>
         )}
         {favorites.length > 0 && (
           <>
-            <h2 className="sidebar-head">お気に入り</h2>
+            <h2 className="sidebar-head">{t.sidebar.favorites}</h2>
             <ul>{favorites.map(row)}</ul>
           </>
         )}
         {rest.length > 0 && (
           <>
-            {favorites.length > 0 && <h2 className="sidebar-head">ライブラリ</h2>}
+            {favorites.length > 0 && <h2 className="sidebar-head">{t.sidebar.library}</h2>}
             <ul>{rest.map(row)}</ul>
           </>
         )}
       </nav>
 
       <ClaudeConnection />
+      <LanguageSelect />
 
       {menu && (
         <div
@@ -155,7 +158,7 @@ export default function Sidebar({
               setMenu(null);
             }}
           >
-            名前を変更
+            {t.sidebar.rename}
           </button>
           <button
             onClick={() => {
@@ -163,7 +166,7 @@ export default function Sidebar({
               setMenu(null);
             }}
           >
-            {menu.song.favorite ? "お気に入りから外す" : "お気に入りに追加"}
+            {menu.song.favorite ? t.sidebar.unfavorite : t.sidebar.favorite}
           </button>
           {menu.song.canUndo && (
             <button
@@ -172,7 +175,7 @@ export default function Sidebar({
                 setMenu(null);
               }}
             >
-              編集を取り消す
+              {t.sidebar.undoEdit}
             </button>
           )}
           {menu.song.sourcePath && (
@@ -182,7 +185,7 @@ export default function Sidebar({
                 setMenu(null);
               }}
             >
-              Finder で表示
+              {t.sidebar.showInFinder}
             </button>
           )}
           <div className="context-sep" />
@@ -193,7 +196,7 @@ export default function Sidebar({
               setMenu(null);
             }}
           >
-            ライブラリから削除
+            {t.sidebar.remove}
           </button>
         </div>
       )}

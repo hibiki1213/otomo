@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useI18n } from "./i18n";
 import type { SongInfo } from "./midiEngine";
 import {
+  choiceKey,
   clearSongInstruments,
   listLibraries,
   listPlugins,
@@ -55,6 +57,7 @@ export function useTrackInstruments(
   songId: number | null,
   enabled: boolean
 ) {
+  const { lang } = useI18n();
   const [states, setStates] = useState<TrackInstrumentState[]>([]);
   const [installed, setInstalled] = useState<InstrumentEntry[]>([]);
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
@@ -79,7 +82,9 @@ export function useTrackInstruments(
     } catch (e) {
       console.error("instrument catalog", e);
     }
-  }, [enabled]);
+    // Names come back in the current language, so a switch re-reads them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, lang]);
 
   useEffect(() => {
     void refreshCatalog();
@@ -210,8 +215,21 @@ export function useTrackInstruments(
     }
   }, []);
 
+  /**
+   * What a track plays through, named in the current language when it is in
+   * the catalog (a remembered label is in whatever language it was saved in).
+   */
+  const labelOf = useCallback(
+    (s: TrackInstrumentState) => {
+      const key = choiceKey(s.choice);
+      return installed.find((i) => choiceKey(i.choice) === key)?.name ?? s.label;
+    },
+    [installed]
+  );
+
   return {
     states,
+    labelOf,
     installed,
     plugins,
     autoAssign,

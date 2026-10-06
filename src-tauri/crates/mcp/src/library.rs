@@ -32,7 +32,7 @@ pub fn data_dir() -> Result<PathBuf, String> {
     if let Ok(dir) = std::env::var("OTOMO_DATA_DIR") {
         return Ok(PathBuf::from(dir));
     }
-    let home = std::env::var("HOME").map_err(|_| "HOME が設定されていません".to_string())?;
+    let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
     Ok(PathBuf::from(home).join("Library/Application Support/io.github.hibiki1213.otomo"))
 }
 
@@ -41,12 +41,12 @@ impl Library {
         let path = dir.join("library.db");
         if !path.exists() {
             return Err(format!(
-                "ライブラリがまだありません（{}）。Otomo で一度 MIDI を開いてください。",
+                "There is no library yet ({}). Open a MIDI file in Otomo once first.",
                 path.display()
             ));
         }
         let db = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| format!("ライブラリを開けません: {e}"))?;
+            .map_err(|e| format!("Could not open the library: {e}"))?;
         Ok(Self { db, dir: dir.join("songs"), root: dir.to_path_buf() })
     }
 
@@ -99,12 +99,12 @@ impl Library {
             )
             .optional()
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("song_id {id} はライブラリにありません。list_songs で確認してください。"))
+            .ok_or_else(|| format!("song_id {id} is not in the library. Check with list_songs."))
     }
 
     pub fn bytes(&self, song: &Song) -> Result<Vec<u8>, String> {
         std::fs::read(self.dir.join(format!("{}.mid", song.hash)))
-            .map_err(|e| format!("「{}」のファイルを読めません: {e}", song.title))
+            .map_err(|e| format!("Could not read the file for \"{}\": {e}", song.title))
     }
 
     /// Add a new song to the library. Purely additive: nothing existing is
@@ -112,7 +112,7 @@ impl Library {
     pub fn create(&self, title: &str, bytes: &[u8]) -> Result<Song, String> {
         let title = title.trim();
         if title.is_empty() {
-            return Err("曲名を指定してください。".into());
+            return Err("Give the song a title.".into());
         }
         let hash = format!("{:x}", Sha256::digest(bytes));
         std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
@@ -122,7 +122,7 @@ impl Library {
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
 
         let db = Connection::open(self.root.join("library.db"))
-            .map_err(|e| format!("ライブラリに書き込めません: {e}"))?;
+            .map_err(|e| format!("Could not write to the library: {e}"))?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
@@ -133,7 +133,7 @@ impl Library {
              ON CONFLICT(hash) DO UPDATE SET title = excluded.title",
             params![title, format!("{title}.mid"), hash, bytes.len() as i64, now],
         )
-        .map_err(|e| format!("ライブラリに書き込めません: {e}"))?;
+        .map_err(|e| format!("Could not write to the library: {e}"))?;
         let id: i64 = db
             .query_row("SELECT id FROM songs WHERE hash = ?1", params![hash], |r| r.get(0))
             .map_err(|e| e.to_string())?;

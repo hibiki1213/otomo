@@ -59,14 +59,14 @@ pub fn read_musicxml(bytes: &[u8]) -> Result<MusicXml, String> {
     let text = decode(&xml)?;
     let options = ParsingOptions { allow_dtd: true, ..ParsingOptions::default() };
     let doc = Document::parse_with_options(&text, options)
-        .map_err(|e| format!("MusicXML を読めませんでした: {e}"))?;
+        .map_err(|e| format!("Could not read the MusicXML: {e}"))?;
     let root = doc.root_element();
     match root.tag_name().name() {
         "score-partwise" => {}
         "score-timewise" => {
-            return Err("timewise 形式の MusicXML には未対応です（partwise で書き出したものを使ってください）".into())
+            return Err("Timewise MusicXML is not supported (use a partwise export)".into())
         }
-        other => return Err(format!("MusicXML ではありません（<{other}>）")),
+        other => return Err(format!("This is not MusicXML (<{other}>)")),
     }
 
     let infos = part_list(root);
@@ -80,13 +80,13 @@ pub fn read_musicxml(bytes: &[u8]) -> Result<MusicXml, String> {
         })
         .collect();
     if parts.iter().all(|p| p.measures.iter().all(|m| m.notes.is_empty())) {
-        return Err("音符が1つもない楽譜です。".into());
+        return Err("The score has no notes at all.".into());
     }
 
     let mut remarks = Vec::new();
     let score = assemble(&parts, &mut remarks);
     if graces > 0 {
-        remarks.push(format!("装飾音符（{graces}個）は省きました。"));
+        remarks.push(format!("Left out {graces} grace note{}.", if graces == 1 { "" } else { "s" }));
     }
     Ok(MusicXml { score, title: title(root), remarks })
 }
@@ -468,13 +468,13 @@ fn assemble(parts: &[Part], remarks: &mut Vec<String>) -> Score {
     let order = play_order(&parts[0].measures);
     if order.len() != count {
         remarks.push(format!(
-            "繰り返しを展開しました（楽譜の{count}小節 → 演奏順で{}小節）。",
+            "Expanded the repeats ({count} bars as written → {} bars in playing order).",
             order.len()
         ));
     }
     if parts.iter().flat_map(|p| &p.measures).any(|m| m.jump) {
         remarks.push(
-            "D.C.・D.S.・コーダ などの指示は展開していません。必要なら copy_bars で補ってください。".into(),
+            "Directions such as D.C., D.S. and coda were not expanded. Fill them in with copy_bars if needed.".into(),
         );
     }
 
@@ -544,7 +544,7 @@ fn assemble(parts: &[Part], remarks: &mut Vec<String>) -> Score {
         tick += lengths[k];
     }
     if score.tempos.is_empty() {
-        remarks.push(format!("テンポの指定がなかったので ♩={DEFAULT_BPM} にしました。"));
+        remarks.push(format!("The score gives no tempo, so ♩={DEFAULT_BPM} was used."));
     }
     if score.tempos.first().is_none_or(|t| t.tick > 0) {
         let us_per_beat = score.tempos.first().map_or((60_000_000.0 / DEFAULT_BPM) as u32, |t| t.us_per_beat);
@@ -701,7 +701,7 @@ fn fit_signature(len: u32, preferred: u16) -> Option<(u8, u16)> {
 /// the first MusicXML file outside META-INF.
 fn zip_root(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let mut zip =
-        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("ZIP を開けませんでした: {e}"))?;
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("Could not open the ZIP: {e}"))?;
     let named = read_entry(&mut zip, "META-INF/container.xml").ok().and_then(|c| rootfile(&c));
     let path = match named {
         Some(path) => path,
@@ -709,7 +709,7 @@ fn zip_root(bytes: &[u8]) -> Result<Vec<u8>, String> {
             .file_names()
             .find(|n| !n.starts_with("META-INF/") && (n.ends_with(".xml") || n.ends_with(".musicxml")))
             .map(str::to_owned)
-            .ok_or("ZIP の中に MusicXML がありません。")?,
+            .ok_or("There is no MusicXML in the ZIP.")?,
     };
     read_entry(&mut zip, &path)
 }
@@ -719,7 +719,7 @@ fn read_entry(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<Ve
     let mut out = Vec::new();
     file.take(MAX_UNZIPPED + 1).read_to_end(&mut out).map_err(|e| format!("{name}: {e}"))?;
     if out.len() as u64 > MAX_UNZIPPED {
-        return Err("展開すると大きすぎる ZIP です。".into());
+        return Err("The ZIP is too large when unpacked.".into());
     }
     Ok(out)
 }
@@ -744,7 +744,7 @@ fn decode(bytes: &[u8]) -> Result<String, String> {
 }
 
 fn unreadable() -> String {
-    "文字コードを読めません（UTF-8 か UTF-16 の MusicXML にしてください）。".into()
+    "Unreadable text encoding (MusicXML must be UTF-8 or UTF-16).".into()
 }
 
 /// From a byte-order mark on. Lossy, so a head cut short for sniffing still
@@ -870,8 +870,8 @@ mod tests {
         let drums = &s.tracks[1];
         assert_eq!((drums.channel, keys_at(drums)), (9, vec![(0, 480, 38)]));
 
-        assert!(read.remarks.iter().any(|r| r.contains("4小節 → 演奏順で5小節")), "{:?}", read.remarks);
-        assert!(read.remarks.iter().any(|r| r.contains("装飾音符（1個）")));
+        assert!(read.remarks.iter().any(|r| r.contains("4 bars as written → 5 bars in playing order")), "{:?}", read.remarks);
+        assert!(read.remarks.iter().any(|r| r.contains("1 grace note.")));
 
         // What goes into the library is an ordinary MIDI file.
         let back = Score::parse(&s.to_smf().unwrap()).unwrap();

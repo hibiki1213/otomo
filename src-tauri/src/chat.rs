@@ -4,7 +4,7 @@
 //! MCP server — the same `otomo-mcp` Claude Desktop uses — and web search, so
 //! an existing piece is looked up rather than recalled. So an edit made
 //! from the chat panel arrives exactly like one made from Claude Desktop: it is
-//! staged, the banner appears, and nothing is kept until someone presses 適用.
+//! staged, the banner appears, and nothing is kept until someone presses Apply.
 //! Playback works the same way, through the control socket.
 //!
 //! The child runs with `--output-format stream-json`; text, tool calls and
@@ -26,6 +26,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
+
+use crate::i18n::tr;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS chat_conv (
@@ -82,7 +84,7 @@ pub struct ChatState {
 #[derive(Default)]
 struct Runs {
     children: HashMap<i64, Child>,
-    /// Conversations someone pressed 止める on, so the ending reads as that
+    /// Conversations someone pressed Stop on, so the ending reads as that
     /// rather than as a failure.
     stopped: HashSet<i64>,
 }
@@ -156,7 +158,7 @@ pub struct Message {
     pub stopped: bool,
 }
 
-/// What the app has open, so "この曲" means something.
+/// What the app has open, so "this song" means something.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SongContext {
@@ -230,28 +232,33 @@ fn claude_path() -> Option<PathBuf> {
     })
 }
 
-fn system_prompt() -> &'static str {
-    "あなたは Otomo（MIDI の作曲・再生アプリ）に組み込まれたアシスタントです。\
-ユーザーはアプリの右パネルからあなたと話していて、画面には曲とピアノロールが見えています。\n\n\
-- 曲を調べる・作る・直す・鳴らすのは Otomo のツールで行う。\n\
-- 既にある曲（国歌・クラシック・民謡・スタンダード・有名曲など）を頼まれたら、記憶だけで書かない。\
-まず WebSearch で楽譜ファイルを探し、見つかったら download で取り込む。\
-探す順は、MusicXML（.musicxml / .mxl：楽譜そのもので最も正確）、MIDI、ABC 記法、PDF・画像の楽譜。\
-Wikimedia Commons、Mutopia Project、IMSLP、abcnotation.com など、パブリックドメインや自由なライセンスの出典を優先する。\n\
-- 取り込んだら get_song と read_bars で中身を確かめてから、頼まれた編成やアレンジに直す。どこから取ったかを返事で伝える。\n\
-- PDF や画像の楽譜しかなければ、download でページを見て書き起こす。読み取りに自信のない箇所は返事で伝える。\n\
-- どれも見つからなければ、WebFetch で調・拍子・テンポ・構成・旋律を調べてから書く。\
-それでも記憶に頼った部分があれば、そう伝える。\n\
-- 編集はすぐには保存されない。「未適用の編集」としてアプリに出て、ユーザーが試聴して「適用」を押すと確定する。\
-編集したら、何を変えたかを一言で伝える。\n\
-- 音を確かめてほしいときは play で鳴らす（範囲や繰り返しも使える）。\n\
-- 各メッセージの頭に [アプリの状態] が付く。「この曲」「いまの曲」はそこに書かれた曲を指す。\n\
-- [選択範囲 N] が付くことがある。ユーザーがピアノロールで囲んだ「時間×音域」の範囲で、\
-「ここ」「この部分」「この音域」はそれを指す。複数あれば番号で区別する。\
-直すときは範囲の中を中心に変え、範囲の外（前後の小節や、範囲外の音域の音）は音楽的に必要な分だけにとどめる。\
-write_bars は小節をまるごと書き換えるので、同じ小節にある範囲外の音は read_bars で読んだとおりに書き戻して残す。\
-音のない範囲なら、そこに新しく書き足してよい（どのトラックに書くか決まっていなければ、合うトラックを選ぶか新しく作る）。\n\
-- 返事は日本語で、短く。音楽用語は使ってよいが、長い説明はしない。\n"
+/// English like everything else Claude reads; the reply follows the person.
+fn system_prompt() -> String {
+    let ui = if crate::i18n::english() { "English" } else { "Japanese" };
+    format!(
+        "You are the assistant built into Otomo, an app for composing and playing MIDI. \
+The user is talking to you from the app's right-hand panel, with the song and its piano roll on screen.\n\n\
+- Look into, create, fix and play songs with the Otomo tools.\n\
+- When asked for a piece that already exists (national anthems, classical works, folk songs, standards, well-known songs), \
+don't write it from memory. First search for a score file with WebSearch, and if you find one, import it with download. \
+Look in this order: MusicXML (.musicxml / .mxl — the score itself, the most accurate), MIDI, ABC notation, then PDF or image scores. \
+Prefer public-domain and freely licensed sources such as Wikimedia Commons, the Mutopia Project, IMSLP and abcnotation.com.\n\
+- After importing, check its contents with get_song and read_bars before rearranging it for the requested instrumentation or arrangement. \
+Say in your reply where you got it.\n\
+- If only a PDF or image score exists, view its pages with download and transcribe them. Say which passages you were unsure of reading.\n\
+- If none of those turn up, look up the key, time signature, tempo, form and melody with WebFetch before writing. \
+If any part still relied on memory, say so.\n\
+- Edits are not saved right away. They appear in the app as pending edits; they are kept once the user has previewed them and pressed Apply. \
+After editing, say in a sentence what you changed.\n\
+- When you want the user to hear something, play it with play (ranges and looping work too).\n\
+- Each message starts with [App state]. \"This song\" and \"the current song\" mean the song named there.\n\
+- A message may carry [Selection N]: a time × pitch range the user drew on the piano roll. \
+\"Here\", \"this part\" and \"this register\" mean it; when there are several, they are told apart by number. \
+When fixing, change mainly what is inside the range, and touch what is outside it (neighbouring bars, notes outside the pitch range) only as much as the music needs. \
+write_bars rewrites whole bars, so write notes outside the range in the same bars back exactly as read_bars gave them. \
+If the range has no notes, you may write new ones into it (if no track is implied, pick one that fits or create one).\n\
+- Reply briefly, in the language the user writes in (the app is set to {ui}). Musical terms are fine; long explanations are not.\n"
+    )
 }
 
 impl ChatState {
@@ -350,9 +357,15 @@ pub fn chat_status() -> ChatStatus {
     let claude = claude_path();
     let server = crate::mcp_setup::server_path();
     let blocked = if claude.is_none() {
-        Some("Claude Code が見つかりません。インストールしてログインしてください。".into())
+        Some(tr!(
+            "Claude Code が見つかりません。インストールしてログインしてください。",
+            "Claude Code isn't installed. Install it and log in."
+        ))
     } else if server.is_none() {
-        Some("MCP サーバーがまだビルドされていません。`pnpm mcp:build` を実行してください。".into())
+        Some(tr!(
+            "MCP サーバーがまだビルドされていません。`pnpm mcp:build` を実行してください。",
+            "The MCP server hasn't been built yet. Run `pnpm mcp:build`."
+        ))
     } else {
         None
     };
@@ -457,7 +470,7 @@ pub fn chat_send(
     let text = text.trim().to_string();
     let selections = selections.unwrap_or_default();
     if text.is_empty() && selections.is_empty() {
-        return Err("メッセージが空です".into());
+        return Err(tr!("メッセージが空です", "The message is empty"));
     }
     let status = chat_status();
     if let Some(reason) = status.blocked {
@@ -488,7 +501,7 @@ pub fn chat_send(
         }
     };
     if chat.runs.lock().unwrap_or_else(|e| e.into_inner()).children.contains_key(&conv_id) {
-        return Err("まだ返事を待っています".into());
+        return Err(tr!("まだ返事を待っています", "Still waiting for the reply"));
     }
     let (session_id, conv_model, conv_effort): (Option<String>, Option<String>, Option<String>) = db
         .query_row(
@@ -498,7 +511,7 @@ pub fn chat_send(
         )
         .optional()
         .map_err(|e| e.to_string())?
-        .ok_or("会話が見つかりません")?;
+        .ok_or_else(|| tr!("会話が見つかりません", "Conversation not found"))?;
     let model = model.or(conv_model);
     let effort = effort.or(conv_effort).filter(|_| takes_effort(model.as_deref()));
     add_message(
@@ -524,8 +537,8 @@ pub fn chat_send(
     drop(db);
 
     let context = match &song {
-        Some(s) => format!("[アプリの状態] いま開いている曲: 「{}」（song_id: {}）", s.title, s.id),
-        None => "[アプリの状態] 曲は開いていません".to_string(),
+        Some(s) => format!("[App state] Open song: \"{}\" (song_id: {})", s.title, s.id),
+        None => "[App state] No song is open".to_string(),
     };
     let mut prompt = context;
     for s in &selections {
@@ -534,7 +547,7 @@ pub fn chat_send(
     }
     prompt.push_str("\n\n");
     prompt.push_str(if text.is_empty() {
-        "（指示は書かれていません。選択範囲を確かめて、どう直せそうかを短く提案してください。）"
+        "(No instruction was written. Look at the selection and briefly suggest how it could be improved.)"
     } else {
         text.as_str()
     });
@@ -562,7 +575,7 @@ pub fn chat_send(
         // The user's settings carry hooks and permissions meant for their
         // coding sessions, not for this panel.
         .args(["--setting-sources", ""])
-        .args(["--append-system-prompt", system_prompt()])
+        .args(["--append-system-prompt", &system_prompt()])
         .current_dir(&chat.cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -585,13 +598,13 @@ pub fn chat_send(
     }
     cmd.env("CLAUDE_CODE_ENTRYPOINT", "otomo-chat");
 
-    let mut child = cmd.spawn().map_err(|e| format!("Claude を起動できませんでした: {e}"))?;
-    let mut stdin = child.stdin.take().ok_or("stdin を開けませんでした")?;
+    let mut child = cmd.spawn().map_err(|e| tr!("Claude を起動できませんでした: {e}", "Couldn't start Claude: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("couldn't open stdin")?;
     stdin
         .write_all(prompt.as_bytes())
-        .map_err(|e| format!("メッセージを渡せませんでした: {e}"))?;
+        .map_err(|e| tr!("メッセージを渡せませんでした: {e}", "Couldn't pass the message on: {e}"))?;
     drop(stdin);
-    let stdout = child.stdout.take().ok_or("stdout を開けませんでした")?;
+    let stdout = child.stdout.take().ok_or("couldn't open stdout")?;
     let stderr = child.stderr.take();
 
     // Drain stderr on its own thread; a full pipe would stall the child.
@@ -789,8 +802,9 @@ fn pump(app: &AppHandle, conv_id: i64, stdout: ChildStdout) -> Outcome {
                         .get("result")
                         .and_then(Value::as_str)
                         .or_else(|| v.get("subtype").and_then(Value::as_str))
-                        .unwrap_or("不明なエラー");
-                    out.error = Some(msg.to_string());
+                        .map(str::to_string)
+                        .unwrap_or_else(|| tr!("不明なエラー", "Unknown error"));
+                    out.error = Some(msg);
                 }
                 // When nothing streamed (one-block answers), the final text
                 // is only here.
@@ -828,7 +842,7 @@ fn finish(app: &AppHandle, runs: &Mutex<Runs>, conv_id: i64, mut out: Outcome, s
     }
     if !stopped && !out.finished && out.error.is_none() {
         out.error = Some(if stderr.trim().is_empty() {
-            "返事が返ってきませんでした".into()
+            tr!("返事が返ってきませんでした", "No reply came back")
         } else {
             short(stderr, 300)
         });

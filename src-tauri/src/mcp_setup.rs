@@ -15,6 +15,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+use crate::i18n::tr;
+
 /// The key this app owns in Claude Desktop's configuration.
 const SERVER_KEY: &str = "otomo";
 const SERVER_BIN: &str = "otomo-mcp";
@@ -36,7 +38,7 @@ pub struct McpStatus {
 }
 
 fn claude_dir() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| "HOME が設定されていません".to_string())?;
+    let home = std::env::var("HOME").map_err(|_| tr!("HOME が設定されていません", "HOME is not set"))?;
     Ok(PathBuf::from(home).join("Library/Application Support/Claude"))
 }
 
@@ -72,12 +74,14 @@ pub(crate) fn server_path() -> Option<PathBuf> {
 fn read_config(path: &Path) -> Result<Option<Value>, String> {
     match std::fs::read_to_string(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("設定ファイルを読めません: {e}")),
+        Err(e) => Err(tr!("設定ファイルを読めません: {e}", "Can't read the settings file: {e}")),
         Ok(text) if text.trim().is_empty() => Ok(None),
         Ok(text) => serde_json::from_str(&text).map(Some).map_err(|e| {
-            format!(
+            tr!(
                 "Claude Desktop の設定ファイルが壊れているようです（{e}）。\
-                 中身を確認してから、もう一度お試しください。"
+                 中身を確認してから、もう一度お試しください。",
+                "Claude Desktop's settings file looks broken ({e}). \
+                 Check what is in it, then try again."
             )
         }),
     }
@@ -112,14 +116,15 @@ pub fn mcp_status(_app: AppHandle) -> Result<McpStatus, String> {
     }
     if status.blocked.is_none() {
         if !status.claude_found {
-            status.blocked = Some(
-                "Claude Desktop が見つかりません。インストールして一度起動してください。".into(),
-            );
+            status.blocked = Some(tr!(
+                "Claude Desktop が見つかりません。インストールして一度起動してください。",
+                "Claude Desktop isn't installed. Install it and open it once."
+            ));
         } else if server.is_none() {
-            status.blocked = Some(
-                "MCP サーバーがまだビルドされていません。`pnpm mcp:build` を実行してください。"
-                    .into(),
-            );
+            status.blocked = Some(tr!(
+                "MCP サーバーがまだビルドされていません。`pnpm mcp:build` を実行してください。",
+                "The MCP server hasn't been built yet. Run `pnpm mcp:build`."
+            ));
         }
     }
     Ok(status)
@@ -130,14 +135,22 @@ pub fn mcp_status(_app: AppHandle) -> Result<McpStatus, String> {
 pub fn mcp_connect(app: AppHandle) -> Result<McpStatus, String> {
     let path = config_path()?;
     let server = server_path()
-        .ok_or("MCP サーバーが見つかりません。`pnpm mcp:build` を実行してください。")?;
+        .ok_or_else(|| {
+            tr!(
+                "MCP サーバーが見つかりません。`pnpm mcp:build` を実行してください。",
+                "The MCP server is missing. Run `pnpm mcp:build`."
+            )
+        })?;
     if let Some(reason) = mcp_status(app.clone())?.blocked {
         return Err(reason);
     }
 
     let mut config = read_config(&path)?.unwrap_or_else(|| json!({}));
     if !config.is_object() {
-        return Err("Claude Desktop の設定ファイルの形式が想定と違います。".into());
+        return Err(tr!(
+            "Claude Desktop の設定ファイルの形式が想定と違います。",
+            "Claude Desktop's settings file isn't in the expected format."
+        ));
     }
     let servers = config
         .as_object_mut()
@@ -145,7 +158,10 @@ pub fn mcp_connect(app: AppHandle) -> Result<McpStatus, String> {
         .entry("mcpServers")
         .or_insert_with(|| json!({}));
     if !servers.is_object() {
-        return Err("設定ファイルの mcpServers が想定と違う形式です。".into());
+        return Err(tr!(
+            "設定ファイルの mcpServers が想定と違う形式です。",
+            "mcpServers in the settings file isn't in the expected format."
+        ));
     }
     servers
         .as_object_mut()
@@ -186,14 +202,14 @@ fn write_config(path: &Path, config: &Value) -> Result<(), String> {
             .unwrap_or(0);
         let backup = path.with_file_name(format!("claude_desktop_config.{stamp}.backup.json"));
         std::fs::copy(path, &backup)
-            .map_err(|e| format!("バックアップを作れませんでした: {e}"))?;
+            .map_err(|e| tr!("バックアップを作れませんでした: {e}", "Couldn't make a backup: {e}"))?;
         prune_backups(path);
     }
     let text = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
     // Write-then-rename: Claude Desktop never sees a half-written file.
     let tmp = path.with_extension("json.part");
-    std::fs::write(&tmp, text.as_bytes()).map_err(|e| format!("書き込めませんでした: {e}"))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("書き込めませんでした: {e}"))?;
+    std::fs::write(&tmp, text.as_bytes()).map_err(|e| tr!("書き込めませんでした: {e}", "Couldn't write it: {e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| tr!("書き込めませんでした: {e}", "Couldn't write it: {e}"))?;
     Ok(())
 }
 

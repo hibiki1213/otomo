@@ -3,6 +3,7 @@
 use otomo_synth::Synth;
 
 use crate::engine::player::Instrument;
+use crate::i18n::tr;
 
 pub struct SynthInstrument(Synth);
 
@@ -10,7 +11,7 @@ impl SynthInstrument {
     pub fn load(preset: &str, sample_rate: u32) -> Result<Self, String> {
         Synth::new(preset, sample_rate)
             .map(Self)
-            .ok_or_else(|| format!("{preset}: 内蔵シンセにそのプリセットはありません"))
+            .ok_or_else(|| tr!("{preset}: 内蔵シンセにそのプリセットはありません", "{preset}: the built-in synth has no such preset"))
     }
 }
 

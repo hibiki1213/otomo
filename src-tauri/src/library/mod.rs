@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 pub use catalog::{Archive, CatalogInstrument, CatalogLibrary, CATALOG};
 
+use crate::i18n::{pick, tr};
 use crate::instruments::{InstrumentChoice, SfzPart};
 
 const INSTALLED_MARKER: &str = ".otomo-installed";
@@ -41,11 +42,17 @@ pub fn is_installed(dir: &Path) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct InstrumentEntry {
     pub id: String,
+    /// In the UI's language.
     pub name: String,
     pub library: String,
     pub library_name: String,
     /// Pass to `engine_set_track_instrument` as-is.
     pub choice: InstrumentChoice,
+    /// The names in English, which is what Claude is told.
+    #[serde(skip)]
+    pub name_en: String,
+    #[serde(skip)]
+    pub library_name_en: String,
 }
 
 /// Locate an .sfz inside an installed library: at its catalog path, or —
@@ -83,10 +90,12 @@ fn entry_for(lib: &CatalogLibrary, inst: &CatalogInstrument, dir: &Path) -> Opti
     };
     Some(InstrumentEntry {
         id: inst.id.to_string(),
-        name: inst.name.to_string(),
+        name: pick(inst.name_ja, inst.name).to_string(),
         library: lib.id.to_string(),
-        library_name: lib.name.to_string(),
+        library_name: pick(lib.name_ja, lib.name).to_string(),
         choice,
+        name_en: inst.name.to_string(),
+        library_name_en: lib.name.to_string(),
     })
 }
 
@@ -96,13 +105,18 @@ pub fn builtin_instruments() -> Vec<InstrumentEntry> {
     otomo_synth::PRESETS.iter().map(synth_entry).collect()
 }
 
+const SYNTH_NAME: &str = "Built-in Synth";
+const SYNTH_NAME_JA: &str = "内蔵シンセ";
+
 fn synth_entry(p: &otomo_synth::Preset) -> InstrumentEntry {
     InstrumentEntry {
         id: format!("synth:{}", p.id),
-        name: p.name.to_string(),
+        name: pick(p.name_ja, p.name).to_string(),
         library: "builtin-synth".into(),
-        library_name: "内蔵シンセ".into(),
+        library_name: pick(SYNTH_NAME_JA, SYNTH_NAME).into(),
         choice: InstrumentChoice::Synth { preset: p.id.to_string() },
+        name_en: p.name.to_string(),
+        library_name_en: SYNTH_NAME.into(),
     }
 }
 
@@ -114,15 +128,18 @@ pub fn synth_presets() -> Vec<InstrumentEntry> {
 /* ---------- SFZ files the user added ---------- */
 
 const USER_LIBRARY: &str = "user";
-const USER_LIBRARY_NAME: &str = "マイ音源";
+const USER_LIBRARY_NAME: &str = "My Sounds";
+const USER_LIBRARY_NAME_JA: &str = "マイ音源";
 
 fn user_entry(inst: crate::songs::UserInstrument) -> InstrumentEntry {
     InstrumentEntry {
         id: format!("my:{}", inst.id),
+        name_en: inst.name.clone(),
         name: inst.name,
         library: USER_LIBRARY.into(),
-        library_name: USER_LIBRARY_NAME.into(),
+        library_name: pick(USER_LIBRARY_NAME_JA, USER_LIBRARY_NAME).into(),
         choice: InstrumentChoice::Sfz { path: inst.path, gain_db: 0.0 },
+        library_name_en: USER_LIBRARY_NAME.into(),
     }
 }
 
@@ -149,7 +166,7 @@ pub fn library_user_instruments(app: AppHandle) -> Vec<InstrumentEntry> {
 pub fn library_add_user_instrument(app: AppHandle, path: String) -> Result<InstrumentEntry, String> {
     let p = Path::new(&path);
     if !p.is_file() || !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("sfz")) {
-        return Err("SFZ ファイル（.sfz）を選んでください。".into());
+        return Err(tr!("SFZ ファイル（.sfz）を選んでください。", "Choose an SFZ file (.sfz)."));
     }
     let name = p.file_stem().and_then(|s| s.to_str()).unwrap_or(&path).to_owned();
     let library = app.state::<crate::songs::SongLibrary>();
@@ -185,9 +202,9 @@ pub fn library_list(app: AppHandle, state: State<'_, LibraryState>) -> Result<Ve
             let installed = is_installed(&dir);
             Ok(LibraryStatus {
                 id: lib.id,
-                name: lib.name,
-                description: lib.description,
-                license: lib.license,
+                name: pick(lib.name_ja, lib.name),
+                description: pick(lib.description_ja, lib.description),
+                license: pick(lib.license_ja, lib.license),
                 attribution: lib.attribution,
                 homepage: lib.homepage,
                 download_size: lib.download_size,
@@ -616,7 +633,7 @@ pub fn installed(app: &AppHandle) -> Vec<serde_json::Value> {
             out.push(serde_json::json!({
                 "id": entry.id,
                 "kind": "sfz",
-                "name": format!("{} — {}", entry.library_name, entry.name),
+                "name": format!("{} — {}", entry.library_name_en, entry.name_en),
             }));
         }
     }
@@ -624,14 +641,14 @@ pub fn installed(app: &AppHandle) -> Vec<serde_json::Value> {
         out.push(serde_json::json!({
             "id": entry.id,
             "kind": "sfz",
-            "name": format!("{} — {}", entry.library_name, entry.name),
+            "name": format!("{} — {}", entry.library_name_en, entry.name_en),
         }));
     }
     for p in otomo_synth::PRESETS {
         out.push(serde_json::json!({
             "id": format!("synth:{}", p.id),
             "kind": "synth",
-            "name": format!("内蔵シンセ — {}", p.name),
+            "name": format!("{SYNTH_NAME} — {}", p.name),
             "description": p.description,
         }));
     }
@@ -671,19 +688,19 @@ pub fn use_instrument(app: &AppHandle, track: usize, id: &str) -> Result<String,
             (InstrumentChoice::AudioUnit { id: plugin.to_owned() }, name.clone(), name)
         }
         None if id == "sf2" || id.eq_ignore_ascii_case("default") => {
-            (InstrumentChoice::Sf2, String::new(), "内蔵の SoundFont".to_owned())
+            (InstrumentChoice::Sf2, String::new(), "the built-in SoundFont".to_owned())
         }
         None => {
             let entry = find_instrument(app, id)
-                .ok_or_else(|| format!("{id}: そういう音源は入っていません。list_playback_instruments で確認してください。"))?;
-            let described = format!("{} — {}", entry.library_name, entry.name);
+                .ok_or_else(|| format!("{id}: no such instrument is installed. Check list_playback_instruments."))?;
+            let described = format!("{} — {}", entry.library_name_en, entry.name_en);
             (entry.choice, entry.name, described)
         }
     };
     let handle = app.state::<crate::engine::EngineHandle>();
     crate::engine::assign_instrument(&handle, track, choice.clone())?;
     let _ = app.emit(INSTRUMENT_EVENT, InstrumentAssigned { track, choice, label });
-    Ok(format!("トラック{track} を「{described}」で鳴らします（この曲の設定として記憶されます）。"))
+    Ok(format!("Track {track} now plays through \"{described}\" (remembered as this song's setting)."))
 }
 
 #[cfg(target_os = "macos")]

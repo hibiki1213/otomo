@@ -35,7 +35,7 @@ pub enum Fetched {
 }
 
 pub fn get(url: &str) -> Result<Fetched, String> {
-    let url = Url::parse(url.trim()).map_err(|e| format!("URL として読めません: {e}"))?;
+    let url = Url::parse(url.trim()).map_err(|e| format!("Not a valid URL: {e}"))?;
     public(&url)?;
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
@@ -43,7 +43,7 @@ pub fn get(url: &str) -> Result<Fetched, String> {
         // Every hop is checked, or a public page could redirect inward.
         .redirect(Policy::custom(|attempt| {
             if attempt.previous().len() >= MAX_REDIRECTS {
-                attempt.error("リダイレクトが多すぎます")
+                attempt.error("Too many redirects")
             } else if let Err(e) = public(attempt.url()) {
                 attempt.error(e)
             } else {
@@ -53,10 +53,10 @@ pub fn get(url: &str) -> Result<Fetched, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client.get(url.clone()).send().map_err(|e| format!("取得できませんでした: {e}"))?;
+    let response = client.get(url.clone()).send().map_err(|e| format!("Could not fetch the file: {e}"))?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("取得できませんでした（HTTP {status}）: {url}"));
+        return Err(format!("Could not fetch the file (HTTP {status}): {url}"));
     }
     let content_type = response
         .headers()
@@ -68,9 +68,9 @@ pub fn get(url: &str) -> Result<Fetched, String> {
     response
         .take(MAX_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|e| format!("読み込みが途中で切れました: {e}"))?;
+        .map_err(|e| format!("The download was cut off: {e}"))?;
     if bytes.len() as u64 > MAX_BYTES {
-        return Err(format!("ファイルが大きすぎます（{} MB まで）。", MAX_BYTES / 1024 / 1024));
+        return Err(format!("The file is too large (the limit is {} MB).", MAX_BYTES / 1024 / 1024));
     }
     Ok(classify(bytes, &content_type))
 }
@@ -101,23 +101,23 @@ fn classify(bytes: Vec<u8>, content_type: &str) -> Fetched {
             return Fetched::Text(text);
         }
     }
-    Fetched::Other(if content_type.is_empty() { "不明な形式".into() } else { content_type.into() })
+    Fetched::Other(if content_type.is_empty() { "unknown type".into() } else { content_type.into() })
 }
 
 /// Refuse anything that is not http(s) to a public address.
 fn public(url: &Url) -> Result<(), String> {
     if !matches!(url.scheme(), "http" | "https") {
-        return Err(format!("{} の URL は取得できません（http / https のみ）。", url.scheme()));
+        return Err(format!("Can't fetch {} URLs (http / https only).", url.scheme()));
     }
-    let host = url.host_str().ok_or("URL にホストがありません。")?;
+    let host = url.host_str().ok_or("The URL has no host.")?;
     let port = url.port_or_known_default().unwrap_or(443);
     let addrs: Vec<IpAddr> = (host.trim_matches(['[', ']']), port)
         .to_socket_addrs()
-        .map_err(|e| format!("{host} が見つかりません: {e}"))?
+        .map_err(|e| format!("Could not find {host}: {e}"))?
         .map(|a| a.ip())
         .collect();
     if addrs.is_empty() || addrs.iter().any(|ip| !is_public(*ip)) {
-        return Err(format!("{host} はローカルネットワークのアドレスなので取得しません。"));
+        return Err(format!("{host} is a local network address, so it will not be fetched."));
     }
     Ok(())
 }

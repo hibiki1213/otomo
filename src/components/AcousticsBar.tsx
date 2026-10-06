@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useI18n } from "@/lib/i18n";
 import {
   setSpatial,
   spatialOptions,
@@ -8,15 +9,7 @@ import {
 } from "@/lib/rustEngine";
 
 const STORAGE_KEY = "otomo.spatial";
-const SEATS = ["前方", "中央", "後方"];
-const OUTPUTS: { id: OutputMode; label: string; hint: string }[] = [
-  { id: "speakers", label: "スピーカー", hint: "スピーカー向けのステレオ" },
-  {
-    id: "headphones",
-    label: "ヘッドホン",
-    hint: "バイノーラル：頭の外、ステージの位置から聞こえるように再現",
-  },
-];
+const OUTPUTS: OutputMode[] = ["speakers", "headphones"];
 
 function loadSaved(): SpatialConfig | null {
   try {
@@ -37,6 +30,7 @@ function save(config: SpatialConfig) {
 
 /** Venue / seat / output selector for the native engine. */
 export default function AcousticsBar({ onOpenLibrary }: { onOpenLibrary: () => void }) {
+  const { t, lang } = useI18n();
   const [venues, setVenues] = useState<VenueInfo[]>([]);
   const [config, setConfig] = useState<SpatialConfig | null>(null);
   const [building, setBuilding] = useState(false);
@@ -78,40 +72,47 @@ export default function AcousticsBar({ onOpenLibrary }: { onOpenLibrary: () => v
     };
   }, []);
 
+  // Venue names come from the backend in the current language.
+  useEffect(() => {
+    if (venues.length === 0) return;
+    spatialOptions()
+      .then(({ venues }) => setVenues(venues))
+      .catch((e) => console.error("spatial options", e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
+
   if (!config) return null;
   const isVenue = config.room !== "original" && config.room !== "dry";
 
   return (
     <div className="acoustics">
       <label className="acoustics-field">
-        <span className="acoustics-label">会場</span>
+        <span className="acoustics-label">{t.acoustics.venue}</span>
         <select
           value={config.room}
           onChange={(e) => apply({ ...config, room: e.target.value })}
         >
-          <option value="original">オリジナル（MIDIの設定どおり）</option>
-          <option value="dry">残響なし</option>
+          <option value="original">{t.acoustics.original}</option>
+          <option value="dry">{t.acoustics.dry}</option>
           {venues.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.name}（残響 {v.rt60.toFixed(1)} 秒）
+              {t.acoustics.venueOption(v.name, v.rt60.toFixed(1))}
             </option>
           ))}
         </select>
       </label>
 
       <div className="acoustics-field">
-        <span className="acoustics-label">座席</span>
+        <span className="acoustics-label">{t.acoustics.seat}</span>
         <div className="segmented" aria-disabled={!isVenue}>
-          {SEATS.map((label, i) => (
+          {t.acoustics.seats.map((label, i) => (
             <button
-              key={label}
+              key={i}
               className={config.seat === i ? "on" : ""}
               disabled={!isVenue}
               onClick={() => apply({ ...config, seat: i })}
               title={
-                isVenue
-                  ? "後ろの席ほど響きが多く、音が遠くなります"
-                  : "会場を選ぶと座席を選べます"
+                isVenue ? t.acoustics.seatHint : t.acoustics.seatNeedsVenue
               }
             >
               {label}
@@ -121,25 +122,25 @@ export default function AcousticsBar({ onOpenLibrary }: { onOpenLibrary: () => v
       </div>
 
       <div className="acoustics-field">
-        <span className="acoustics-label">出力</span>
+        <span className="acoustics-label">{t.acoustics.output}</span>
         <div className="segmented">
           {OUTPUTS.map((o) => (
             <button
-              key={o.id}
-              className={config.output === o.id ? "on" : ""}
-              onClick={() => apply({ ...config, output: o.id })}
-              title={o.hint}
+              key={o}
+              className={config.output === o ? "on" : ""}
+              onClick={() => apply({ ...config, output: o })}
+              title={o === "speakers" ? t.acoustics.speakersHint : t.acoustics.headphonesHint}
             >
-              {o.label}
+              {o === "speakers" ? t.acoustics.speakers : t.acoustics.headphones}
             </button>
           ))}
         </div>
       </div>
 
-      {building && <span className="acoustics-status">響きを生成中…</span>}
+      {building && <span className="acoustics-status">{t.acoustics.building}</span>}
 
       <button className="btn-ghost acoustics-library" onClick={onOpenLibrary}>
-        音源ライブラリ…
+        {t.acoustics.libraries}
       </button>
     </div>
   );

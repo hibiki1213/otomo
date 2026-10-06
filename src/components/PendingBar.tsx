@@ -1,3 +1,4 @@
+import { useI18n } from "@/lib/i18n";
 import type { PendingEdit } from "@/lib/songsApi";
 import type { SongLibrary } from "@/lib/useSongLibrary";
 
@@ -16,10 +17,11 @@ export default function PendingBar({
   /** Whether the player is currently sounding the staged version. */
   previewing: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className="pending-bar">
       <div className="pending-text">
-        <strong>Claude が編集しました</strong>
+        <strong>{t.pending.title}</strong>
         <ul>
           {edit.changes.slice(-4).map((change, i) => (
             <li key={i}>{change.split("\n")[0]}</li>
@@ -32,13 +34,13 @@ export default function PendingBar({
           onClick={() => void library.previewPending(edit.songId)}
           disabled={previewing}
         >
-          {previewing ? "試聴中" : "試聴"}
+          {previewing ? t.common.previewing : t.common.preview}
         </button>
         <button className="btn-quiet" onClick={() => void library.discardEdit(edit.songId)}>
-          破棄
+          {t.common.discard}
         </button>
         <button className="btn-filled" onClick={() => void library.applyEdit(edit.songId)}>
-          適用
+          {t.common.apply}
         </button>
       </div>
     </div>

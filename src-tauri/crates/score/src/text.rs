@@ -74,7 +74,7 @@ impl Grid {
             .and_then(|n| n.parse::<u32>().ok())
             .filter(|n| (1..=64).contains(n))
             .ok_or_else(|| {
-                format!("quantize は \"1/4\"〜\"1/64\" か \"off\" で指定してください（{text} は不明）")
+                format!("quantize must be \"1/4\" to \"1/64\" or \"off\" (unknown: {text})")
             })?;
         Ok(Grid::Divisions(divisions))
     }

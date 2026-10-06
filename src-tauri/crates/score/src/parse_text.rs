@@ -38,7 +38,7 @@ fn parse_sound(text: &str, percussion: bool) -> Result<u8, String> {
     }
     parse_note_name(text).map_err(|e| {
         if percussion {
-            format!("{e}（ドラムは Kick / Snare / HatClosed のような名前でも書けます）")
+            format!("{e} (drums can also be written by name, such as Kick / Snare / HatClosed)")
         } else {
             e
         }
@@ -51,12 +51,12 @@ pub fn parse_note_name(text: &str) -> Result<u8, String> {
     let letter = bytes
         .first()
         .map(|b| b.to_ascii_uppercase() as char)
-        .ok_or_else(|| "音名が空です".to_string())?;
+        .ok_or_else(|| "The pitch is empty".to_string())?;
     let mut semitone = NAMES
         .iter()
         .find(|(n, _)| n.as_bytes()[0] as char == letter)
         .map(|(_, s)| *s)
-        .ok_or_else(|| format!("音名として読めません: {text}"))?;
+        .ok_or_else(|| format!("Not a pitch name: {text}"))?;
 
     let mut rest = &text[1..];
     while let Some(c) = rest.chars().next() {
@@ -69,12 +69,12 @@ pub fn parse_note_name(text: &str) -> Result<u8, String> {
     }
     let octave: i32 = rest
         .parse()
-        .map_err(|_| format!("{text} にオクターブがありません（C4 のように書きます）"))?;
+        .map_err(|_| format!("{text} has no octave (write it like C4)"))?;
     let key = (octave + 1) * 12 + semitone;
     u8::try_from(key)
         .ok()
         .filter(|k| *k <= 127)
-        .ok_or_else(|| format!("{text} は MIDI の音域外です（C-1〜G9）"))
+        .ok_or_else(|| format!("{text} is outside the MIDI range (C-1 to G9)"))
 }
 
 /// Split a bar into tokens. Whitespace separates them, except inside the
@@ -95,7 +95,7 @@ fn tokenize(line: &str) -> Result<Vec<&str>, String> {
                 b'[' => depth += 1,
                 b']' => {
                     depth = depth.checked_sub(1).ok_or_else(|| {
-                        format!("{}: 和音の [ がありません", &line[start..=i])
+                        format!("{}: chord is missing its opening [", &line[start..=i])
                     })?
                 }
                 _ => {}
@@ -103,7 +103,7 @@ fn tokenize(line: &str) -> Result<Vec<&str>, String> {
             i += 1;
         }
         if depth > 0 {
-            return Err(format!("{}: 和音の ] が閉じていません", &line[start..]));
+            return Err(format!("{}: chord is missing its closing ]", &line[start..]));
         }
         out.push(&line[start..i]);
     }
@@ -127,7 +127,7 @@ fn parse_token(token: &str, percussion: bool) -> Result<Vec<Written>, String> {
         Some(after) => {
             let (inside, rest) = after
                 .split_once(']')
-                .ok_or_else(|| format!("{token}: 和音の ] が閉じていません"))?;
+                .ok_or_else(|| format!("{token}: chord is missing its closing ]"))?;
             (
                 inside
                     .split(|c: char| c.is_whitespace() || c == ',')
@@ -140,35 +140,35 @@ fn parse_token(token: &str, percussion: bool) -> Result<Vec<Written>, String> {
         None => {
             let at = token
                 .find('@')
-                .ok_or_else(|| format!("{token}: `音名@拍:長さ` の形式で書きます（例 C4@1:1）"))?;
+                .ok_or_else(|| format!("{token}: write notes as `pitch@beat:length` (e.g. C4@1:1)"))?;
             (vec![token[..at].to_owned()], &token[at..])
         }
     };
 
     let rest = rest
         .strip_prefix('@')
-        .ok_or_else(|| format!("{token}: 位置の前に @ が要ります（例 [C4 E4]@1:2）"))?;
+        .ok_or_else(|| format!("{token}: an @ is needed before the position (e.g. [C4 E4]@1:2)"))?;
     // The velocity suffix is optional: `...:2v90`.
     let (timing, velocity) = match rest.rsplit_once('v') {
         Some((timing, vel)) => (
             timing,
             vel.parse::<u8>()
-                .map_err(|_| format!("{token}: 強さは 1〜127 の数字です"))?
+                .map_err(|_| format!("{token}: velocity must be a number 1–127"))?
                 .clamp(1, 127),
         ),
         None => (rest, DEFAULT_VELOCITY),
     };
     let (beat, length) = timing
         .split_once(':')
-        .ok_or_else(|| format!("{token}: 長さが要ります（例 C4@1:0.5）"))?;
-    let beat: f64 = beat.parse().map_err(|_| format!("{token}: 拍が数字ではありません"))?;
+        .ok_or_else(|| format!("{token}: a length is needed (e.g. C4@1:0.5)"))?;
+    let beat: f64 = beat.parse().map_err(|_| format!("{token}: the beat is not a number"))?;
     let beats_long: f64 =
-        length.parse().map_err(|_| format!("{token}: 長さが数字ではありません"))?;
+        length.parse().map_err(|_| format!("{token}: the length is not a number"))?;
     if beat < 1.0 {
-        return Err(format!("{token}: 拍は小節の頭を 1 として数えます"));
+        return Err(format!("{token}: beats count from 1 at the start of the bar"));
     }
     if beats_long <= 0.0 {
-        return Err(format!("{token}: 長さは 0 より大きい必要があります"));
+        return Err(format!("{token}: the length must be greater than 0"));
     }
 
     pitches
@@ -206,7 +206,7 @@ pub fn parse_passage(
             _ if is_bar_label(line) => (bar_number(line)?, ""),
             _ => (next, line),
         };
-        let notes = parse_bar(body, percussion).map_err(|e| format!("{bar}小節目: {e}"))?;
+        let notes = parse_bar(body, percussion).map_err(|e| format!("Bar {bar}: {e}"))?;
         out.entry(bar).or_default().extend(notes);
         next = bar + 1;
     }
@@ -218,7 +218,7 @@ fn is_bar_label(word: &str) -> bool {
 }
 
 fn bar_number(word: &str) -> Result<u32, String> {
-    word[1..].parse().map_err(|_| format!("小節番号として読めません: {word}"))
+    word[1..].parse().map_err(|_| format!("Not a bar number: {word}"))
 }
 
 #[cfg(test)]
@@ -258,12 +258,12 @@ mod tests {
     #[test]
     fn says_what_is_wrong_and_where() {
         let err = parse_passage("b3  C4@1", 1, false).unwrap_err();
-        assert!(err.contains("3小節目") && err.contains("長さ"), "{err}");
+        assert!(err.contains("Bar 3") && err.contains("length"), "{err}");
         let err = parse_passage("b3  [C4 E4@1:1", 1, false).unwrap_err();
         assert!(err.contains("]"), "{err}");
         let err = parse_passage("b3  C4@0:1", 1, false).unwrap_err();
-        assert!(err.contains("小節の頭"), "{err}");
+        assert!(err.contains("start of the bar"), "{err}");
         let err = parse_passage("b3  C4@1:0", 1, false).unwrap_err();
-        assert!(err.contains("0 より大きい"), "{err}");
+        assert!(err.contains("greater than 0"), "{err}");
     }
 }

@@ -42,40 +42,43 @@ impl Handler for Server {
         vec![
             Tool {
                 name: "list_songs",
-                description: "Otomo のライブラリにある曲の一覧。song_id はほかのツールで使う。",
+                description: "List the songs in the Otomo library. Use song_id with the other tools.",
                 schema: json!({
                     "type": "object",
                     "properties": {
-                        "query": { "type": "string", "description": "曲名の部分一致で絞り込む" }
+                        "query": { "type": "string", "description": "Filter by part of the title" }
                     }
                 }),
             },
             Tool {
                 name: "download",
-                description: "URL のファイルを取ってくる。国歌・クラシック・民謡・スタンダードなど既にある曲は、\
-                              記憶で書かずに、ウェブで楽譜や MIDI を探してここで取り込む。\n\
-                              ・MusicXML（.musicxml / .xml / .mxl）→ 楽譜の音符をそのまま曲にして取り込む。いちばん正確。\n\
-                              ・MIDI（.mid）→ ライブラリに新しい曲として取り込む。\n\
-                              どちらも取り込んだら get_song と同じ概要を返すので、read_bars で確かめてから編成やアレンジを直す。\n\
-                              ・PDF・画像（PNG / JPEG）の楽譜 → ページを画像で返す。読み取って create_song と write_score で書き起こす。\
-                              MusicXML や MIDI が見つからないときの手段。pages で読むページを選ぶ（一度に3ページまで）。\n\
-                              ・テキスト（ABC 記法、歌詞など）→ 中身を加工せずに返す。長いものは offset で続きを読む。\n\
-                              HTML のページは WebFetch で読む。SVG の楽譜は PNG に変換された版の URL を使う。",
+                description: "Fetch a file from a URL. For music that already exists (national anthems, classical pieces, \
+                              folk songs, standards, etc.), do not write it from memory: search the web for sheet music or MIDI \
+                              and import it here.\n\
+                              - MusicXML (.musicxml / .xml / .mxl) → imports the notes of the score as they are, as a song. The most accurate option.\n\
+                              - MIDI (.mid) → imports it into the library as a new song.\n\
+                              Both return the same overview as get_song; check the notes with read_bars before reworking the \
+                              instrumentation or arrangement.\n\
+                              - PDF or image (PNG / JPEG) sheet music → returns the pages as images. Read them and transcribe \
+                              them with create_song and write_score. Use this when no MusicXML or MIDI can be found. \
+                              Choose the pages to read with pages (up to 3 at a time).\n\
+                              - Text (ABC notation, lyrics, etc.) → returns the contents unprocessed. Read the rest of a long text with offset.\n\
+                              Read HTML pages with WebFetch. For SVG sheet music, use the URL of a version converted to PNG.",
                 schema: json!({
                     "type": "object",
                     "properties": {
-                        "url": { "type": "string", "description": "ファイルそのものの URL（http / https）" },
-                        "title": { "type": "string", "description": "取り込むときの曲名（省略すると楽譜の題名かファイル名）" },
-                        "pages": { "type": "string", "description": "PDF で読むページ。\"1-2\"（既定）、\"3\" など" },
-                        "offset": { "type": "integer", "description": "テキストの続きを読むときの開始文字位置" }
+                        "url": { "type": "string", "description": "URL of the file itself (http / https)" },
+                        "title": { "type": "string", "description": "Title for the imported song (defaults to the score's title or the file name)" },
+                        "pages": { "type": "string", "description": "Pages of a PDF to read: \"1-2\" (default), \"3\", etc." },
+                        "offset": { "type": "integer", "description": "Character position to start from when reading the rest of a text" }
                     },
                     "required": ["url"]
                 }),
             },
             Tool {
                 name: "get_song",
-                description: "曲の全体像：トラック（楽器・音域・音数）、調、拍子、テンポ、小節数。\
-                              read_bars で中身を読む前に、まずこれを見る。",
+                description: "Overview of a song: tracks (instrument, range, note count), key, time signature, tempo, \
+                              and number of bars. Look at this first, before reading the notes with read_bars.",
                 schema: json!({
                     "type": "object",
                     "properties": { "song_id": { "type": "integer" } },
@@ -85,27 +88,28 @@ impl Handler for Server {
             Tool {
                 name: "read_bars",
                 description: format!(
-                    "指定した小節範囲の音符を読む。1小節1行、`音名@拍:長さ` の形式で、\
-                     拍は小節内の1始まり、長さは拍数。同時に始まり同じ長さの音は `[C4 E4 G4]` とまとめる。\
-                     人間の演奏を録った MIDI は、その範囲に合う単位に丸めて読む（quantize で変えられる）。\
-                     一度に読めるのは{MAX_BARS}小節まで。"
+                    "Read the notes in a range of bars. One bar per line, each note written as `pitch@beat:length`: \
+                     the beat counts from 1 within the bar, and the length is in beats. Notes that start together \
+                     and have the same length are grouped as `[C4 E4 G4]`. MIDI recorded from a human performance \
+                     is snapped to a grid that suits the passage (change it with quantize). \
+                     Up to {MAX_BARS} bars per call."
                 )
                 .leak(),
                 schema: json!({
                     "type": "object",
                     "properties": {
                         "song_id": { "type": "integer" },
-                        "from_bar": { "type": "integer", "description": "1始まり" },
+                        "from_bar": { "type": "integer", "description": "Counts from 1" },
                         "to_bar": { "type": "integer" },
                         "tracks": {
                             "type": "array",
                             "items": { "type": "integer" },
-                            "description": "get_song のトラック番号。省略すると全トラック"
+                            "description": "Track numbers from get_song. Omit for all tracks"
                         },
-                        "velocity": { "type": "boolean", "description": "強さも出す（既定: false）" },
+                        "velocity": { "type": "boolean", "description": "Also show velocities (default: false)" },
                         "quantize": {
                             "type": "string",
-                            "description": "位置と長さを丸める単位。省略するとその範囲に合う単位を自動で選ぶ。\"1/16\"、\"1/12\"（三連符）、\"off\" で丸めない"
+                            "description": "Grid to snap positions and lengths to. Omit to pick one that suits the passage automatically. \"1/16\", \"1/12\" (triplets), or \"off\" for no snapping"
                         }
                     },
                     "required": ["song_id", "from_bar", "to_bar"]
@@ -113,9 +117,10 @@ impl Handler for Server {
             },
             Tool {
                 name: "harmony",
-                description: "小節範囲の和声進行をコードネームで読む。\
-                              パートが多い曲で「ここは何をしているか」を掴むには、read_bars より桁違いに軽い。\
-                              拍ごとに判定し、続いている和音はまとめる。",
+                description: "Read the harmony of a range of bars as chord symbols. \
+                              In a piece with many parts, this is an order of magnitude lighter than read_bars \
+                              for grasping what a passage is doing. Chords are identified beat by beat, and a chord \
+                              that carries on is merged into one.",
                 schema: json!({
                     "type": "object",
                     "properties": {
@@ -125,7 +130,7 @@ impl Handler for Server {
                         "tracks": {
                             "type": "array",
                             "items": { "type": "integer" },
-                            "description": "省略すると全トラック（打楽器は除外される）"
+                            "description": "Omit for all tracks (percussion is excluded)"
                         }
                     },
                     "required": ["song_id", "from_bar", "to_bar"]
@@ -133,20 +138,20 @@ impl Handler for Server {
             },
             Tool {
                 name: "play",
-                description: "起動中の Otomo でこの曲を鳴らす。音を確かめてもらうために使う。\
-                              to_bar で範囲を区切り、loop で繰り返せる（直して聴き直す作業向け）。\
-                              tracks を指定するとそのパートだけが鳴る（ソロ）。",
+                description: "Play this song in the running Otomo app, so the user can hear it. \
+                              to_bar ends the range and loop repeats it (for fixing and listening again). \
+                              With tracks, only those parts play (solo).",
                 schema: json!({
                     "type": "object",
                     "properties": {
                         "song_id": { "type": "integer" },
                         "from_bar": { "type": "integer" },
-                        "to_bar": { "type": "integer", "description": "ここまで鳴らして止まる" },
-                        "loop": { "type": "boolean", "description": "範囲を繰り返す" },
+                        "to_bar": { "type": "integer", "description": "Play up to this bar, then stop" },
+                        "loop": { "type": "boolean", "description": "Repeat the range" },
                         "tracks": {
                             "type": "array",
                             "items": { "type": "integer" },
-                            "description": "このパートだけ鳴らす。省略すると全部"
+                            "description": "Play only these parts. Omit for all"
                         }
                     },
                     "required": ["song_id"]
@@ -154,28 +159,30 @@ impl Handler for Server {
             },
             Tool {
                 name: "list_playback_instruments",
-                description: "Otomo で使える音源（内蔵シンセ、SFZ ライブラリ、ユーザーが自分で追加した SFZ「マイ音源」、AudioUnit プラグイン）の一覧。\
-                              内蔵シンセには EDM 向けの音色（スーパーソウ、プラック、808、ワブルベース、EDM ドラムなど）がある。\
-                              General MIDI の音色より良い音で鳴らしたいときに使う。起動中の Otomo が要る。",
+                description: "List the sounds available in Otomo: the built-in synth, SFZ libraries, SFZ instruments \
+                              the user added themselves (\"My Sounds\"), and AudioUnit plugins. The built-in synth has EDM sounds \
+                              (supersaw, pluck, 808, wobble bass, EDM drums, etc.). Use this when a part should sound \
+                              better than the General MIDI sounds. Requires Otomo to be running.",
                 schema: json!({ "type": "object", "properties": {} }),
             },
             Tool {
                 name: "set_playback_instrument",
-                description: "いま開いている曲のトラックを、指定した音源で鳴らす。\
-                              これは再生の設定で、曲のデータ（MIDI）は変わらない。\
-                              設定は曲ごとに記憶され、次にこの曲を開いたときも同じ音源で鳴る。",
+                description: "Play a track of the song currently open through the given sound. \
+                              This is a playback setting; the song data (MIDI) does not change. \
+                              The setting is remembered per song, so the next time this song is opened it plays \
+                              with the same sound.",
                 schema: json!({
                     "type": "object",
                     "properties": {
                         "track": { "type": "integer" },
-                        "instrument": { "type": "string", "description": "list_playback_instruments の id" }
+                        "instrument": { "type": "string", "description": "An id from list_playback_instruments" }
                     },
                     "required": ["track", "instrument"]
                 }),
             },
             Tool {
                 name: "stop",
-                description: "再生を止める。",
+                description: "Stop playback.",
                 schema: json!({ "type": "object", "properties": {} }),
             },
         ]
@@ -233,23 +240,23 @@ fn answer(name: &str, args: &Value) -> Result<String, String> {
             let staged = pending::staged(&dir, song.id).is_some();
             control::play(&dir, song.id, seconds, until, looping, solo.clone(), staged)?;
             Ok(format!(
-                "「{}」{}を{bar}小節目（{}）から{}{}再生しています。",
+                "Playing \"{}\"{} from bar {bar} ({}){}{}.",
                 song.title,
-                if staged { "（未適用の編集を含む版）" } else { "" },
+                if staged { " (the version with the pending edits)" } else { "" },
                 clock(seconds),
                 match (opt_i64(args, "to_bar"), looping) {
-                    (Some(to), true) => format!("{to}小節目まで繰り返して"),
-                    (Some(to), false) => format!("{to}小節目まで"),
+                    (Some(to), true) => format!(" to bar {to}, on a loop"),
+                    (Some(to), false) => format!(" to bar {to}"),
                     (None, _) => String::new(),
                 },
                 match &solo {
                     Some(list) if !list.is_empty() => format!(
-                        "（{}のみ）",
+                        " (only {})",
                         list.iter()
                             .filter_map(|i| score.tracks.get(*i))
                             .map(track_label)
                             .collect::<Vec<_>>()
-                            .join("・")
+                            .join(", ")
                     ),
                     _ => String::new(),
                 }
@@ -262,24 +269,24 @@ fn answer(name: &str, args: &Value) -> Result<String, String> {
         "set_playback_instrument" => {
             let reply = control::set_playback(
                 &dir,
-                usize::try_from(need_i64(args, "track")?).map_err(|_| "track は 0 以上です")?,
+                usize::try_from(need_i64(args, "track")?).map_err(|_| "track must be 0 or more")?,
                 need_str(args, "instrument")?,
             )?;
             Ok(reply
                 .get("message")
                 .and_then(Value::as_str)
-                .unwrap_or("音源を切り替えました。")
+                .unwrap_or("Switched the sound.")
                 .to_string())
         }
         "stop" => {
             control::stop(&dir)?;
-            Ok("再生を止めました。".into())
+            Ok("Stopped playback.".into())
         }
         other if edit_tools::is_edit(other) => {
             let library = Library::open(&dir)?;
             edit_tools::call(other, args, &library, &dir)
         }
-        other => Err(format!("知らないツールです: {other}")),
+        other => Err(format!("Unknown tool: {other}")),
     }
 }
 
@@ -299,8 +306,8 @@ fn download(dir: &std::path::Path, args: &Value) -> Result<Reply, String> {
     match fetch::get(url)? {
         Fetched::Midi(bytes) => {
             // Checked before it is stored, so a broken file never reaches the library.
-            let score = Score::parse(&bytes).map_err(|e| format!("MIDI として読めませんでした: {e}"))?;
-            let title = named.or_else(|| fetch::title_from(url)).unwrap_or_else(|| "ダウンロードした曲".into());
+            let score = Score::parse(&bytes).map_err(|e| format!("Could not read the file as MIDI: {e}"))?;
+            let title = named.or_else(|| fetch::title_from(url)).unwrap_or_else(|| "Downloaded song".into());
             import(dir, &title, &bytes, &score, url, &[])
         }
         Fetched::MusicXml(bytes) => {
@@ -311,7 +318,7 @@ fn download(dir: &std::path::Path, args: &Value) -> Result<Reply, String> {
             let title = named
                 .or(read.title)
                 .or_else(|| fetch::title_from(url))
-                .unwrap_or_else(|| "ダウンロードした曲".into());
+                .unwrap_or_else(|| "Downloaded song".into());
             import(dir, &title, &smf, &score, url, &read.remarks)
         }
         Fetched::Pdf(bytes) => {
@@ -320,37 +327,37 @@ fn download(dir: &std::path::Path, args: &Value) -> Result<Reply, String> {
             let shown = pages.images.iter().map(|(n, _)| *n);
             let (from, to) = (shown.clone().min().unwrap_or(first), shown.max().unwrap_or(first));
             let mut text = format!(
-                "{url} — PDF の楽譜、全{}ページのうち {from}〜{to} ページ目です。\n\n{READ_BY_EYE}",
+                "{url} — PDF sheet music, pages {from}–{to} of {}.\n\n{READ_BY_EYE}",
                 pages.count
             );
             if to < pages.count {
                 let next = (to + 1, (to + MAX_PAGES).min(pages.count));
-                text.push_str(&format!("\n続きは pages: \"{}-{}\" で読めます。", next.0, next.1));
+                text.push_str(&format!("\nRead on with pages: \"{}-{}\".", next.0, next.1));
             }
             Ok(Reply { text, images: pages.images.into_iter().map(|(_, png)| ("image/png", png)).collect() })
         }
         Fetched::Scan(bytes) => Ok(Reply {
-            text: format!("{url} — 楽譜の画像です。\n\n{READ_BY_EYE}"),
+            text: format!("{url} — an image of sheet music.\n\n{READ_BY_EYE}"),
             images: vec![("image/png", picture::scan(&bytes)?)],
         }),
         Fetched::Text(text) => Ok(text_page(url, &text, opt_i64(args, "offset").unwrap_or(0)).into()),
-        Fetched::Html => Err("HTML のページです。内容は WebFetch で読み、そこから楽譜ファイルそのもの\
-                              （.musicxml / .mxl / .mid / .pdf など）へのリンクを探して download に渡してください。"
+        Fetched::Html => Err("This is an HTML page. Read it with WebFetch, find a link to the score file itself \
+                              (.musicxml / .mxl / .mid / .pdf, etc.), and pass that to download."
             .into()),
-        Fetched::Svg => Err("SVG の楽譜は読めません。PNG に変換された版の URL を使ってください\
-                             （Wikimedia Commons なら upload.wikimedia.org/…/thumb/…/1600px-….svg.png）。"
+        Fetched::Svg => Err("SVG sheet music can't be read. Use the URL of a version converted to PNG \
+                             (on Wikimedia Commons: upload.wikimedia.org/…/thumb/…/1600px-….svg.png)."
             .into()),
         Fetched::Other(kind) => Err(format!(
-            "{kind} のファイルは読めません。MusicXML・MIDI・PDF・PNG / JPEG の楽譜か、ABC 記法などのテキストを指定してください。"
+            "Can't read this file ({kind}). Give sheet music as MusicXML, MIDI, PDF or PNG / JPEG, or text such as ABC notation."
         )),
     }
 }
 
 /// What to do with a score that arrives as pictures.
-const READ_BY_EYE: &str = "読み取って書き起こしてください。\n\
-    ・先に調号・拍子・テンポ・パート構成・弱起の有無を確かめる。\n\
-    ・create_song → add_tracks → write_score で、数小節ずつ書く。移調楽器の譜は実音に直す。\n\
-    ・読み取れない、自信のない箇所は推測で埋めず、返事でそう伝える。";
+const READ_BY_EYE: &str = "Read it and transcribe it.\n\
+    - First establish the key signature, time signature, tempo, parts, and whether it starts with a pickup.\n\
+    - Write it a few bars at a time with create_song → add_tracks → write_score. Write transposing instruments at concert pitch.\n\
+    - Do not fill in anything you can't read or aren't sure of by guessing; say so in your reply.";
 
 fn import(
     dir: &std::path::Path,
@@ -361,9 +368,9 @@ fn import(
     remarks: &[String],
 ) -> Result<Reply, String> {
     let song = Library::open(dir)?.create(title, smf)?;
-    let mut text = format!("「{}」として取り込みました（song_id {}、出典 {url}）。\n", song.title, song.id);
+    let mut text = format!("Imported as \"{}\" (song_id {}, source {url}).\n", song.title, song.id);
     for remark in remarks {
-        text.push_str(&format!("※ {remark}\n"));
+        text.push_str(&format!("Note: {remark}\n"));
     }
     text.push('\n');
     text.push_str(&describe(&song, score));
@@ -375,7 +382,7 @@ fn import(
 fn page_range(args: &Value) -> Result<(usize, usize), String> {
     let text = opt_str(args, "pages").unwrap_or_else(|| "1-2".into());
     let (a, b) = text.split_once(['-', '–']).unwrap_or((&text, &text));
-    let bad = || format!("{text}: pages は \"1-2\" や \"3\" のように書きます");
+    let bad = || format!("{text}: write pages like \"1-2\" or \"3\"");
     let first: usize = a.trim().parse().map_err(|_| bad())?;
     let last: usize = b.trim().parse().map_err(|_| bad())?;
     if first == 0 || last < first {
@@ -390,13 +397,13 @@ fn text_page(url: &str, text: &str, offset: i64) -> String {
     let body: String = text.chars().skip(from).take(PAGE_CHARS).collect();
     let to = from + body.chars().count();
     let mut out = if from == 0 && to == total {
-        format!("{url}（{total}文字）\n\n")
+        format!("{url} ({total} characters)\n\n")
     } else {
-        format!("{url}（全{total}文字のうち {from}〜{to}）\n\n")
+        format!("{url} (characters {from}–{to} of {total})\n\n")
     };
     out.push_str(&body);
     if to < total {
-        out.push_str(&format!("\n\n…続きがあります。offset: {to} で続きを読めます。"));
+        out.push_str(&format!("\n\n…There is more. Read on with offset: {to}."));
     }
     out
 }
@@ -409,11 +416,11 @@ fn list_songs(library: &Library, query: Option<&str>) -> Result<String, String> 
     let songs = library.list(query, MAX_SONGS)?;
     if songs.is_empty() {
         return Ok(match query {
-            Some(q) => format!("「{q}」に一致する曲はありません。"),
-            None => "ライブラリはまだ空です。Otomo で MIDI を開くと追加されます。".into(),
+            Some(q) => format!("No songs match \"{q}\"."),
+            None => "The library is empty. Songs are added when a MIDI file is opened in Otomo.".into(),
         });
     }
-    let mut out = String::from("song_id  長さ   トラック  曲名\n");
+    let mut out = String::from("song_id  length tracks    title\n");
     for s in &songs {
         out.push_str(&format!(
             "{:<8} {:<6} {:<9} {}{}\n",
@@ -430,30 +437,32 @@ fn list_songs(library: &Library, query: Option<&str>) -> Result<String, String> 
 fn describe(song: &Song, score: &Score) -> String {
     let bars = score.bars();
     let (lo, hi) = score.bpm_range();
-    let mut out = format!("{}（{}）\n", song.title, song.file_name);
+    let mut out = format!("{} ({})\n", song.title, song.file_name);
     out.push_str(&format!(
-        "長さ {} / {}小節 / テンポ {} / {}\n",
+        "Length {} / {} bars / tempo {} / {}\n",
         clock(score.duration()),
         bars.count,
         if lo == hi { format!("{lo} BPM") } else { format!("{lo}–{hi} BPM") },
         signature_summary(score, &bars),
     ));
     if let Some(k) = score.key_signatures.first() {
-        out.push_str(&format!("調 {}\n", k.name()));
+        out.push_str(&format!("Key {}\n", k.name()));
     }
     if let Some(beats) = score.looks_like_a_pickup() {
         out.push_str(&format!(
-            "※ 最初の音が1小節目の途中（残り{beats}拍）から始まります。弱起なら set_pickup({beats}) を。\n"
+            "Note: the first note starts partway through bar 1 ({beats} {} before the end of the bar). \
+             If it is a pickup, use set_pickup({beats}).\n",
+            if beats == 1.0 { "beat" } else { "beats" }
         ));
     }
     for line in score.text.iter().take(3) {
         let short: String = line.chars().take(160).collect();
         let ellipsis = if line.chars().count() > 160 { "…" } else { "" };
-        out.push_str(&format!("メモ: {short}{ellipsis}\n"));
+        out.push_str(&format!("Text: {short}{ellipsis}\n"));
     }
     // A file that names its own sections is the cheapest map of itself.
     if !score.markers.is_empty() {
-        out.push_str("\n区切り: ");
+        out.push_str("\nSections: ");
         let marks: Vec<String> = score
             .markers
             .iter()
@@ -462,12 +471,12 @@ fn describe(song: &Song, score: &Score) -> String {
             .collect();
         out.push_str(&marks.join(" / "));
         if score.markers.len() > 24 {
-            out.push_str(&format!(" …ほか{}件", score.markers.len() - 24));
+            out.push_str(&format!(" …and {} more", score.markers.len() - 24));
         }
         out.push('\n');
     }
 
-    out.push_str("\n番号 楽器                       音数   音域      小節     名前\n");
+    out.push_str("\n#    instrument                 notes  range     bars     name\n");
     for (i, track) in score.tracks.iter().enumerate().take(MAX_TRACKS) {
         let lo_key = track.notes.iter().map(|n| n.key).min().unwrap_or(0);
         let hi_key = track.notes.iter().map(|n| n.key).max().unwrap_or(0);
@@ -477,7 +486,7 @@ fn describe(song: &Song, score: &Score) -> String {
             "{:<4} {:<26} {:<6} {:<9} {:<8} {}\n",
             i,
             if track.is_percussion() {
-                "パーカッション".to_string()
+                "Percussion".to_string()
             } else {
                 program_name(track.program).to_string()
             },
@@ -488,7 +497,7 @@ fn describe(song: &Song, score: &Score) -> String {
         ));
     }
     if score.tracks.len() > MAX_TRACKS {
-        out.push_str(&format!("…ほか{}トラック\n", score.tracks.len() - MAX_TRACKS));
+        out.push_str(&format!("…and {} more tracks\n", score.tracks.len() - MAX_TRACKS));
     }
     out
 }
@@ -499,15 +508,15 @@ fn harmony(song: &Song, score: &Score, args: &Value) -> Result<String, String> {
     let from = need_i64(args, "from_bar")?.max(1) as u32;
     let to = need_i64(args, "to_bar")?.max(from as i64) as u32;
     if from > bars.count {
-        return Err(format!("この曲は{}小節までです。", bars.count));
+        return Err(format!("This song ends at bar {}.", bars.count));
     }
     // Chords are compact, so a wider window than read_bars is affordable.
     if to - from + 1 > MAX_BARS * 4 {
-        return Err(format!("一度に読めるのは{}小節までです。", MAX_BARS * 4));
+        return Err(format!("At most {} bars can be read at a time.", MAX_BARS * 4));
     }
     let tracks = wanted_tracks(score, args)?;
 
-    let mut out = format!("{} — {from}〜{}小節の和声\n", song.title, to.min(bars.count));
+    let mut out = format!("{} — harmony, bars {from}–{}\n", song.title, to.min(bars.count));
     let mut line = String::new();
     let mut at_bar = 0u32;
     for chord in analyse_harmony(score, &bars, &tracks, from, to) {
@@ -536,9 +545,9 @@ fn harmony(song: &Song, score: &Score, args: &Value) -> Result<String, String> {
 fn render_instruments(reply: &Value) -> String {
     let items = reply.get("instruments").and_then(Value::as_array);
     let Some(items) = items.filter(|i| !i.is_empty()) else {
-        return "Otomo に追加の音源は入っていません（General MIDI の内蔵音色のみ）。".into();
+        return "Otomo has no additional sounds installed (only the built-in General MIDI sounds).".into();
     };
-    let mut out = String::from("id                              種類        名前\n");
+    let mut out = format!("{:<31} {:<11} {}\n", "id", "kind", "name");
     for item in items {
         out.push_str(&format!(
             "{:<31} {:<11} {}\n",
@@ -557,7 +566,7 @@ fn wanted_tracks(score: &Score, args: &Value) -> Result<Vec<usize>, String> {
                 list.iter().filter_map(Value::as_u64).map(|n| n as usize).collect();
             if let Some(bad) = picked.iter().find(|i| **i >= score.tracks.len()) {
                 return Err(format!(
-                    "トラック {bad} はありません（0〜{}）。",
+                    "There is no track {bad} (tracks are 0–{}).",
                     score.tracks.len().saturating_sub(1)
                 ));
             }
@@ -574,7 +583,7 @@ fn signature_summary(score: &Score, bars: &otomo_score::BarMap) -> String {
         if span.first_bar == 1 {
             parts.push(label);
         } else {
-            parts.push(format!("{label}（{}小節目〜）", span.first_bar));
+            parts.push(format!("{label} (from bar {})", span.first_bar));
         }
         if parts.len() == 4 {
             parts.push("…".into());
@@ -590,11 +599,11 @@ fn read(song: &Song, score: &Score, args: &Value) -> Result<String, String> {
     let from = need_i64(args, "from_bar")?.max(1) as u32;
     let to = need_i64(args, "to_bar")?.max(from as i64) as u32;
     if from > bars.count {
-        return Err(format!("この曲は{}小節までです（{from}小節目は範囲外）。", bars.count));
+        return Err(format!("This song ends at bar {} (bar {from} is out of range).", bars.count));
     }
     if to - from + 1 > MAX_BARS {
         return Err(format!(
-            "一度に読めるのは{MAX_BARS}小節までです。{from}〜{}小節のように分けてください。",
+            "At most {MAX_BARS} bars can be read at a time. Split it up, starting with bars {from}–{}.",
             from + MAX_BARS - 1
         ));
     }
@@ -607,12 +616,12 @@ fn read(song: &Song, score: &Score, args: &Value) -> Result<String, String> {
 
     let to = to.min(bars.count);
     let grid = chosen.unwrap_or_else(|| suggest_grid(score, &bars, &wanted, from, to));
-    let mut out = format!("{} — {from}〜{to}小節（{} に丸め）\n", song.title, grid.label());
+    let mut out = format!("{} — bars {from}–{to} (quantize: {})\n", song.title, grid.label());
     for index in wanted {
         let track = &score.tracks[index];
         let lines = render_bars(score, &bars, index, from, to, velocity, grid);
         if lines.iter().all(|l| l.notes.is_empty()) {
-            out.push_str(&format!("\n[{index}] {} — この範囲は休み\n", track_label(track)));
+            out.push_str(&format!("\n[{index}] {} — rests throughout this range\n", track_label(track)));
             continue;
         }
         out.push_str(&format!("\n[{index}] {}\n", track_label(track)));
@@ -631,7 +640,7 @@ fn read(song: &Song, score: &Score, args: &Value) -> Result<String, String> {
 
 fn track_label(track: &otomo_score::Track) -> String {
     let instrument =
-        if track.is_percussion() { "パーカッション" } else { program_name(track.program) };
+        if track.is_percussion() { "Percussion" } else { program_name(track.program) };
     if track.name.is_empty() {
         instrument.to_string()
     } else {

@@ -17,35 +17,37 @@ pub fn tools() -> Vec<Tool> {
     vec![
         Tool {
             name: "create_song",
-            description: "空の曲をライブラリに作る。作ったあと add_track と write_bars で中身を書く。\
-                          既にある曲（国歌・クラシック・民謡など）なら、先にウェブで MIDI や楽譜を探して download で取り込む。",
+            description: "Create an empty song in the library, then write its contents with add_track and write_bars. \
+                          For music that already exists (national anthems, classical pieces, folk songs, etc.), \
+                          first search the web for MIDI or sheet music and import it with download instead.",
             schema: json!({
                 "type": "object",
                 "properties": {
                     "title": { "type": "string" },
-                    "tempo": { "type": "number", "description": "BPM（既定 120）" },
-                    "time_signature": { "type": "string", "description": "\"4/4\"（既定）、\"3/4\" など" },
-                    "key": { "type": "string", "description": "\"D major\"、\"B minor\" など" }
+                    "tempo": { "type": "number", "description": "BPM (default 120)" },
+                    "time_signature": { "type": "string", "description": "\"4/4\" (default), \"3/4\", etc." },
+                    "key": { "type": "string", "description": "\"D major\", \"B minor\", etc." }
                 },
                 "required": ["title"]
             }),
         },
         Tool {
             name: "write_bars",
-            description: "1トラックの指定した小節範囲を、書いたとおりに置き換える。\
-                          記法は read_bars と同じ `音名@拍:長さ`（強さは `v90` を付ける）。\
-                          範囲内で書かなかった小節は空になる。同じ呼び出しを繰り返しても二重にならない。",
+            description: "Replace a range of bars in one track with exactly what you write. \
+                          The notation is the same as read_bars: `pitch@beat:length` (append `v90` for velocity). \
+                          Bars in the range that you leave out become empty. Repeating the same call does not \
+                          double the notes.",
             schema: json!({
                 "type": "object",
                 "properties": {
                     "song_id": { "type": "integer" },
-                    "track": { "type": "integer", "description": "get_song のトラック番号" },
+                    "track": { "type": "integer", "description": "Track number from get_song" },
                     "from_bar": { "type": "integer" },
                     "to_bar": { "type": "integer" },
                     "notes": {
                         "type": "string",
-                        "description": "1行1小節。`b12  C4@1:1 [E4 G4]@3:2` のように小節番号を付ける。\
-                                        空文字列にすると範囲を消す。"
+                        "description": "One bar per line, labelled with its bar number, e.g. `b12  C4@1:1 [E4 G4]@3:2`. \
+                                        An empty string clears the range."
                     }
                 },
                 "required": ["song_id", "track", "from_bar", "to_bar", "notes"]
@@ -53,16 +55,16 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "add_track",
-            description: "楽器トラックを足す。percussion を true にするとドラム（MIDI ch.10）になる。",
+            description: "Add an instrument track. With percussion set to true it becomes a drum track (MIDI ch. 10).",
             schema: json!({
                 "type": "object",
                 "properties": {
                     "song_id": { "type": "integer" },
                     "instrument": {
                         "type": "string",
-                        "description": "General MIDI の楽器名（\"Flute\"、\"French Horn\"、\"String Ensemble 1\"）か番号 0〜127"
+                        "description": "General MIDI instrument name (\"Flute\", \"French Horn\", \"String Ensemble 1\") or number 0–127"
                     },
-                    "name": { "type": "string", "description": "譜面上のパート名（省略すると楽器名）" },
+                    "name": { "type": "string", "description": "Part name shown in the score (defaults to the instrument name)" },
                     "percussion": { "type": "boolean" }
                 },
                 "required": ["song_id", "instrument"]
@@ -70,13 +72,13 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "set_track",
-            description: "トラックの楽器や名前を変える。",
+            description: "Change a track's instrument or name.",
             schema: json!({
                 "type": "object",
                 "properties": {
                     "song_id": { "type": "integer" },
                     "track": { "type": "integer" },
-                    "instrument": { "type": "string", "description": "General MIDI の楽器名か番号" },
+                    "instrument": { "type": "string", "description": "General MIDI instrument name or number" },
                     "name": { "type": "string" }
                 },
                 "required": ["song_id", "track"]
@@ -84,8 +86,8 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "add_tracks",
-            description: "楽器をまとめて足す。編成を一度に組むとき用。\
-                          \"Drums\" を含めるとドラムトラックになる。",
+            description: "Add several instruments at once, for setting up an ensemble in one go. \
+                          Include \"Drums\" for a drum track.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -93,7 +95,7 @@ pub fn tools() -> Vec<Tool> {
                     "instruments": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "例: [\"Flute\", \"Clarinet\", \"French Horn\", \"String Ensemble 1\", \"Drums\"]"
+                        "description": "e.g. [\"Flute\", \"Clarinet\", \"French Horn\", \"String Ensemble 1\", \"Drums\"]"
                     }
                 },
                 "required": ["song_id", "instruments"]
@@ -101,9 +103,9 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "write_score",
-            description: "複数トラックをまとめて書く。read_bars の出力と同じ形式で、\
-                          `[0] Flute` の見出しで次のトラックに切り替わる。\
-                          見出しに出てこないトラックは触らない。編成が大きいときはこちらを使う。",
+            description: "Write several tracks in one call, in the same format read_bars prints: \
+                          a header such as `[0] Flute` switches to that track. \
+                          Tracks without a header are left untouched. Use this for large ensembles.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -112,7 +114,7 @@ pub fn tools() -> Vec<Tool> {
                     "to_bar": { "type": "integer" },
                     "notes": {
                         "type": "string",
-                        "description": "例:\n[0] Flute\nb1  C6@1:2 D6@3:2\nb2  E6@1:4\n\n[2] Cello\nb1  C3@1:4\nb2  G2@1:4"
+                        "description": "Example:\n[0] Flute\nb1  C6@1:2 D6@3:2\nb2  E6@1:4\n\n[2] Cello\nb1  C3@1:4\nb2  G2@1:4"
                     }
                 },
                 "required": ["song_id", "from_bar", "to_bar", "notes"]
@@ -120,9 +122,10 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "copy_bars",
-            description: "あるトラックの小節範囲を別のトラックへ写す。オーケストレーションの主作業。\
-                          transpose で移調、voice で和音の上声部（melody）や下声部（bass）だけを取り出せる。\
-                          merge を true にすると置き換えずに重ねる（オクターブ重複など）。",
+            description: "Copy a range of bars from one track to another — the core of orchestration work. \
+                          transpose shifts the pitch; voice takes only the top line of the chords (melody) \
+                          or the bottom line (bass). With merge set to true, the notes are layered on top \
+                          instead of replacing what is there (octave doublings, etc.).",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -131,20 +134,20 @@ pub fn tools() -> Vec<Tool> {
                     "to_track": { "type": "integer" },
                     "from_bar": { "type": "integer" },
                     "to_bar": { "type": "integer" },
-                    "at_bar": { "type": "integer", "description": "写し先の先頭小節（省略すると同じ小節）" },
-                    "transpose": { "type": "integer", "description": "半音。12 で1オクターブ上" },
+                    "at_bar": { "type": "integer", "description": "First bar at the destination (defaults to the same bar)" },
+                    "transpose": { "type": "integer", "description": "In semitones. 12 is an octave up" },
                     "voice": {
                         "type": "string",
-                        "description": "\"all\"（既定）/ \"top\"（和音の最高音＝旋律）/ \"bottom\"（最低音＝バス）"
+                        "description": "\"all\" (default) / \"top\" (highest note of each chord = melody) / \"bottom\" (lowest note = bass)"
                     },
-                    "merge": { "type": "boolean", "description": "写し先を消さずに重ねる（既定 false）" }
+                    "merge": { "type": "boolean", "description": "Layer onto the destination instead of clearing it (default false)" }
                 },
                 "required": ["song_id", "from_track", "to_track", "from_bar", "to_bar"]
             }),
         },
         Tool {
             name: "remove_track",
-            description: "トラックを丸ごと消す。以降トラック番号が繰り上がる点に注意。",
+            description: "Delete a whole track. Note that the tracks after it are renumbered (each moves down by one).",
             schema: json!({
                 "type": "object",
                 "properties": { "song_id": { "type": "integer" }, "track": { "type": "integer" } },
@@ -153,15 +156,15 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "set_tempo",
-            description: "テンポを変える。from_bar を指定するとその小節から。\
-                          to_bar と to_bpm を両方指定すると、その区間で徐々に変わる（リタルダンド等）。",
+            description: "Change the tempo. With from_bar, the change starts at that bar. \
+                          With both to_bar and to_bpm, the tempo changes gradually over that span (a ritardando, etc.).",
             schema: json!({
                 "type": "object",
                 "properties": {
                     "song_id": { "type": "integer" },
                     "bpm": { "type": "number" },
                     "from_bar": { "type": "integer" },
-                    "to_bar": { "type": "integer", "description": "to_bpm と一緒に指定すると、その範囲で徐々に変化する（rit. / accel.）" },
+                    "to_bar": { "type": "integer", "description": "Together with to_bpm, the tempo changes gradually over the range (rit. / accel.)" },
                     "to_bpm": { "type": "number" }
                 },
                 "required": ["song_id", "bpm"]
@@ -169,12 +172,12 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "set_time_signature",
-            description: "拍子を変える。from_bar 以降の小節番号が変わる。",
+            description: "Change the time signature. The bar numbers after from_bar change.",
             schema: json!({
                 "type": "object",
                 "properties": {
                     "song_id": { "type": "integer" },
-                    "signature": { "type": "string", "description": "\"3/4\"、\"6/8\" など" },
+                    "signature": { "type": "string", "description": "\"3/4\", \"6/8\", etc." },
                     "from_bar": { "type": "integer" }
                 },
                 "required": ["song_id", "signature"]
@@ -182,19 +185,19 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "set_key",
-            description: "調号を設定する。",
+            description: "Set the key signature.",
             schema: json!({
                 "type": "object",
                 "properties": {
                     "song_id": { "type": "integer" },
-                    "key": { "type": "string", "description": "\"D major\"、\"B minor\" など" }
+                    "key": { "type": "string", "description": "\"D major\", \"B minor\", etc." }
                 },
                 "required": ["song_id", "key"]
             }),
         },
         Tool {
             name: "insert_bars",
-            description: "指定した小節の前に空の小節を差し込む。以降の音は後ろにずれる。",
+            description: "Insert empty bars before the given bar. Everything after it moves later.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -207,7 +210,7 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "delete_bars",
-            description: "小節を全トラックから取り除く。以降の音は前に詰まる。",
+            description: "Remove bars from every track. Everything after them moves earlier to close the gap.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -220,8 +223,8 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "set_dynamics",
-            description: "小節範囲の強弱を決める。to_level を付けるとクレッシェンド／ディミヌエンドになり、\
-                          伸ばした音も膨らむようエクスプレッション（CC11）の曲線も書く。",
+            description: "Set the dynamics of a range of bars. With to_level it becomes a crescendo / diminuendo, \
+                          and an expression (CC11) curve is written too, so that held notes swell as well.",
             schema: json!({
                 "type": "object",
                 "properties": {
@@ -229,28 +232,28 @@ pub fn tools() -> Vec<Tool> {
                     "track": { "type": "integer" },
                     "from_bar": { "type": "integer" },
                     "to_bar": { "type": "integer" },
-                    "level": { "type": "string", "description": "pp / p / mp / mf / f / ff か 1〜127" },
-                    "to_level": { "type": "string", "description": "省略すると一定。指定するとその強さへ向かって変化する" }
+                    "level": { "type": "string", "description": "pp / p / mp / mf / f / ff or 1–127" },
+                    "to_level": { "type": "string", "description": "Omit for a constant level. When given, the dynamics move toward this level" }
                 },
                 "required": ["song_id", "track", "from_bar", "to_bar", "level"]
             }),
         },
         Tool {
             name: "set_pickup",
-            description: "1小節目を弱起（アウフタクト）にする。beats に弱起の拍数。0 にすると解除。\
-                          以降の小節番号が1つずれる点に注意。",
+            description: "Make bar 1 a pickup (anacrusis). beats is the length of the pickup; 0 removes it. \
+                          Note that the bar numbers after it shift by one.",
             schema: json!({
                 "type": "object",
                 "properties": {
                     "song_id": { "type": "integer" },
-                    "beats": { "type": "number", "description": "弱起の長さ（拍）" }
+                    "beats": { "type": "number", "description": "Length of the pickup (in beats)" }
                 },
                 "required": ["song_id", "beats"]
             }),
         },
         Tool {
             name: "discard_changes",
-            description: "未適用の編集を捨てて、ライブラリにある状態へ戻す。",
+            description: "Throw away the pending (unapplied) edits and go back to the version in the library.",
             schema: json!({
                 "type": "object",
                 "properties": { "song_id": { "type": "integer" } },
@@ -278,9 +281,9 @@ pub fn call(
     if name == "discard_changes" {
         return Ok(if pending::discard(data_dir, song.id) {
             notify(data_dir, song.id);
-            format!("「{}」の未適用の編集を捨てました。", song.title)
+            format!("Discarded the pending edits to \"{}\".", song.title)
         } else {
-            format!("「{}」に未適用の編集はありません。", song.title)
+            format!("\"{}\" has no pending edits.", song.title)
         });
     }
 
@@ -318,13 +321,13 @@ fn apply(name: &str, args: &Value, score: &mut Score) -> Result<String, String> 
             let list = args
                 .get("instruments")
                 .and_then(Value::as_array)
-                .ok_or("instruments は必須です（楽器名の配列）")?;
+                .ok_or("instruments is required (an array of instrument names)")?;
             if list.is_empty() {
-                return Err("楽器を1つ以上指定してください。".into());
+                return Err("Give at least one instrument.".into());
             }
             let mut done = Vec::new();
             for item in list {
-                let text = item.as_str().ok_or("instruments は文字列の配列です")?;
+                let text = item.as_str().ok_or("instruments must be an array of strings")?;
                 let percussion = text.trim().eq_ignore_ascii_case("drums")
                     || text.trim().eq_ignore_ascii_case("percussion");
                 let program = if percussion { 0 } else { program_number(text)? };
@@ -365,7 +368,7 @@ fn apply(name: &str, args: &Value, score: &mut Score) -> Result<String, String> 
         ),
         "remove_track" => score.remove_track(track_of(args)?),
         "set_tempo" => {
-            let bpm = args.get("bpm").and_then(Value::as_f64).ok_or("bpm は必須です（数値）")?;
+            let bpm = args.get("bpm").and_then(Value::as_f64).ok_or("bpm is required (a number)")?;
             let from = opt_i64(args, "from_bar").unwrap_or(1).max(1) as u32;
             // A second tempo and a range make it a curve rather than a step.
             match (args.get("to_bpm").and_then(Value::as_f64), opt_i64(args, "to_bar")) {
@@ -381,7 +384,7 @@ fn apply(name: &str, args: &Value, score: &mut Score) -> Result<String, String> 
             opt_str(args, "to_level").as_deref(),
         ),
         "set_pickup" => score.set_pickup(
-            args.get("beats").and_then(Value::as_f64).ok_or("beats は必須です（拍数）")?,
+            args.get("beats").and_then(Value::as_f64).ok_or("beats is required (a number of beats)")?,
         ),
         "set_time_signature" => {
             let (num, den) = parse_signature(need_str(args, "signature")?)?;
@@ -396,7 +399,7 @@ fn apply(name: &str, args: &Value, score: &mut Score) -> Result<String, String> 
             need_i64(args, "count")?.clamp(0, 512) as u32,
         ),
         "delete_bars" => score.delete_bars(need_bar(args, "from_bar")?, need_bar(args, "to_bar")?),
-        other => Err(format!("知らないツールです: {other}")),
+        other => Err(format!("Unknown tool: {other}")),
     }
 }
 
@@ -407,7 +410,7 @@ fn create_song(args: &Value, library: &Library, data_dir: &std::path::Path) -> R
     };
     let bpm = args.get("tempo").and_then(Value::as_f64).unwrap_or(120.0);
     if !(10.0..=400.0).contains(&bpm) {
-        return Err("テンポは 10〜400 BPM の範囲で指定してください。".into());
+        return Err("The tempo must be between 10 and 400 BPM.".into());
     }
     let mut score = Score::blank(bpm, num, den);
     if let Some(key) = opt_str(args, "key") {
@@ -418,8 +421,8 @@ fn create_song(args: &Value, library: &Library, data_dir: &std::path::Path) -> R
     let song = library.create(title, &score.to_smf()?)?;
     let _ = data_dir;
     Ok(format!(
-        "「{title}」を作りました（song_id {}、{bpm:.0} BPM、{num}/{den}）。\
-         add_track で楽器を足してから write_bars で書いてください。",
+        "Created \"{title}\" (song_id {}, {bpm:.0} BPM, {num}/{den}). \
+         Add instruments with add_track, then write with write_bars.",
         song.id
     ))
 }
@@ -429,7 +432,7 @@ fn track_of(args: &Value) -> Result<usize, String> {
 }
 
 fn need_usize(args: &Value, key: &str) -> Result<usize, String> {
-    usize::try_from(need_i64(args, key)?).map_err(|_| format!("{key} は 0 以上です"))
+    usize::try_from(need_i64(args, key)?).map_err(|_| format!("{key} must be 0 or more"))
 }
 
 /// An instrument given by name or by number; absent means "leave it alone".
@@ -438,7 +441,7 @@ fn instrument_of(args: &Value, key: &str) -> Result<Option<u8>, String> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Number(n)) => Ok(Some(n.as_i64().unwrap_or(0).clamp(0, 127) as u8)),
         Some(Value::String(text)) => program_number(text).map(Some),
-        Some(_) => Err(format!("{key} は楽器名か 0〜127 の番号です")),
+        Some(_) => Err(format!("{key} must be an instrument name or a number 0–127")),
     }
 }
 
@@ -447,7 +450,7 @@ fn need_bar(args: &Value, key: &str) -> Result<u32, String> {
     u32::try_from(bar)
         .ok()
         .filter(|b| *b >= 1)
-        .ok_or_else(|| format!("{key} は 1 以上の小節番号です"))
+        .ok_or_else(|| format!("{key} must be a bar number of 1 or more"))
 }
 
 /// "6/8" → (6, 8).
@@ -455,18 +458,18 @@ fn parse_signature(text: &str) -> Result<(u8, u16), String> {
     let (num, den) = text
         .trim()
         .split_once('/')
-        .ok_or_else(|| format!("{text}: 拍子は \"4/4\" のように書きます"))?;
-    let num: u8 = num.trim().parse().map_err(|_| format!("{text}: 分子が数字ではありません"))?;
-    let den: u16 = den.trim().parse().map_err(|_| format!("{text}: 分母が数字ではありません"))?;
+        .ok_or_else(|| format!("{text}: write time signatures like \"4/4\""))?;
+    let num: u8 = num.trim().parse().map_err(|_| format!("{text}: the numerator is not a number"))?;
+    let den: u16 = den.trim().parse().map_err(|_| format!("{text}: the denominator is not a number"))?;
     Ok((num, den))
 }
 
 /// What is staged, for `get_song` and the `pending_changes` tool.
 pub fn describe_staged(data_dir: &std::path::Path, song: &Song) -> Option<String> {
     let staged = pending::staged(data_dir, song.id)?;
-    let mut out = format!("\n未適用の編集（Otomo で「適用」を押すと確定）:\n");
+    let mut out = format!("\nPending edits (confirmed when the user presses Apply in Otomo):\n");
     for change in &staged.changes {
-        out.push_str(&format!("  ・{}\n", change.lines().next().unwrap_or(change)));
+        out.push_str(&format!("  - {}\n", change.lines().next().unwrap_or(change)));
     }
     Some(out)
 }

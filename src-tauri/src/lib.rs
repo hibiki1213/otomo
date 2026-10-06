@@ -4,6 +4,7 @@ mod asset_cache;
 mod chat;
 mod control;
 mod engine;
+mod i18n;
 mod instruments;
 mod library;
 mod mcp_setup;
@@ -12,6 +13,7 @@ mod spatial;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    i18n::init();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -56,6 +58,8 @@ pub fn run() {
             engine::engine_set_track_instrument,
             engine::plugin_list,
             engine::plugin_open_editor,
+            i18n::system_language,
+            i18n::set_language,
             library::library_list,
             library::library_install,
             library::library_remove,

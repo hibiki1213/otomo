@@ -18,16 +18,19 @@ import {
   type Part,
   type ToolEvent,
 } from "@/lib/chatApi";
+import { useI18n } from "@/lib/i18n";
 import { selectionContext, selectionLabel, type RollSelection } from "@/lib/rollSelection";
 import { libraryAvailable } from "@/lib/songsApi";
 import type { SongLibrary } from "@/lib/useSongLibrary";
+import type { Messages } from "@/locales/en";
 
 /**
  * Aliases, not versions: Claude Code resolves each to the newest model of
  * that family, so a new release is picked up without touching this list.
  */
-const MODELS: { value: string | null; label: string }[] = [
-  { value: null, label: "自動" },
+const MODELS: { value: string | null; label: string | null }[] = [
+  /** null: the localized "Auto". */
+  { value: null, label: null },
   { value: "fable", label: "Fable" },
   { value: "opus", label: "Opus" },
   { value: "sonnet", label: "Sonnet" },
@@ -44,43 +47,6 @@ const EFFORT_LABEL: Record<Effort, string> = {
 
 /** Haiku has no effort control; the backend leaves the flag off for it. */
 const takesEffort = (model: string | null) => !model?.includes("haiku");
-
-const SUGGESTIONS = [
-  "8小節のローファイなピアノ曲を作って",
-  "この曲に合うベースラインを足して",
-  "この曲のコード進行を教えて",
-];
-
-/** What each Otomo tool is doing, in words. */
-const TOOL_LABEL: Record<string, string> = {
-  WebSearch: "ウェブで調べる",
-  WebFetch: "ページを読む",
-  download: "ダウンロード",
-  list_songs: "曲の一覧を見る",
-  get_song: "曲を調べる",
-  read_bars: "小節を読む",
-  harmony: "和声を読む",
-  play: "再生",
-  stop: "停止",
-  list_playback_instruments: "音源を調べる",
-  set_playback_instrument: "音源を切り替え",
-  create_song: "曲を作る",
-  write_bars: "小節を書く",
-  write_score: "譜面を書く",
-  add_track: "トラックを追加",
-  add_tracks: "トラックを追加",
-  set_track: "トラックを変更",
-  remove_track: "トラックを削除",
-  copy_bars: "小節をコピー",
-  insert_bars: "小節を挿入",
-  delete_bars: "小節を削除",
-  set_tempo: "テンポを変更",
-  set_time_signature: "拍子を変更",
-  set_key: "調を変更",
-  set_dynamics: "強弱を変更",
-  set_pickup: "弱起を設定",
-  discard_changes: "編集を破棄",
-};
 
 const LAST_CONV_KEY = "otomo.chat.conv";
 /** The last model and effort picked, as the start for a new conversation. */
@@ -109,33 +75,33 @@ function recallEffort(): Effort | null {
   return EFFORTS.find((e) => e === saved) ?? null;
 }
 
-/** "小節 5–8 · トラック 2" — the part of a call's input worth a glance. */
-function summarize(input: Record<string, unknown>): string {
+/** "bars 5–8 · track 2" — the part of a call's input worth a glance. */
+function summarize(input: Record<string, unknown>, t: Messages["chat"]): string {
   const v = (k: string) => input[k] as string | number | undefined;
   const out: string[] = [];
-  if (v("query")) out.push(`「${v("query")}」`);
+  if (v("query")) out.push(t.quoted(String(v("query"))));
   if (typeof input.url === "string") out.push(shortUrl(input.url));
-  if (v("pages")) out.push(`${v("pages")}ページ`);
-  if (v("title")) out.push(`「${v("title")}」`);
+  if (v("pages")) out.push(t.pages(String(v("pages"))));
+  if (v("title")) out.push(t.quoted(String(v("title"))));
   if (v("from_track") != null && v("to_track") != null)
-    out.push(`トラック ${v("from_track")}→${v("to_track")}`);
-  else if (v("track") != null) out.push(`トラック ${v("track")}`);
-  if (Array.isArray(input.tracks)) out.push(`トラック ${input.tracks.join(",")} のみ`);
+    out.push(t.trackToTrack(String(v("from_track")), String(v("to_track"))));
+  else if (v("track") != null) out.push(t.track(String(v("track"))));
+  if (Array.isArray(input.tracks)) out.push(t.onlyTracks(input.tracks.join(",")));
   if (v("from_bar") != null)
     out.push(
       v("to_bar") != null && v("to_bar") !== v("from_bar")
-        ? `小節 ${v("from_bar")}–${v("to_bar")}`
-        : `小節 ${v("from_bar")}`
+        ? t.bars(String(v("from_bar")), String(v("to_bar")))
+        : t.bar(String(v("from_bar")))
     );
-  else if (v("at_bar") != null) out.push(`小節 ${v("at_bar")}`);
+  else if (v("at_bar") != null) out.push(t.bar(String(v("at_bar"))));
   const bpm = v("to_bpm") ?? v("tempo");
   if (bpm != null) out.push(`${bpm} BPM`);
   if (v("key")) out.push(String(v("key")));
   const sig = v("time_signature") ?? v("signature");
   if (sig) out.push(String(sig));
   if (v("instrument")) out.push(String(v("instrument")));
-  if (Array.isArray(input.instruments)) out.push(input.instruments.join("・"));
-  if (input.loop) out.push("繰り返し");
+  if (Array.isArray(input.instruments)) out.push(input.instruments.join(t.instrumentSeparator));
+  if (input.loop) out.push(t.loop);
   return out.join(" · ");
 }
 
@@ -203,7 +169,7 @@ function withText(m: Message, text: string): Message {
  *
  * Stays mounted while collapsed so an answer keeps streaming in. Edits land
  * as the same pending edits Claude Desktop makes, so approving one is the
- * banner's 適用 — or the copy of it at the bottom of this panel.
+ * banner's Apply — or the copy of it at the bottom of this panel.
  */
 export default function ChatPanel({
   library,
@@ -223,6 +189,7 @@ export default function ChatPanel({
   attachments: RollSelection[];
   onAttachmentsChange: (next: RollSelection[]) => void;
 }) {
+  const { t } = useI18n();
   const [status, setStatus] = useState<ChatStatus | null>(null);
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<number | null>(() => {
@@ -472,8 +439,8 @@ export default function ChatPanel({
         <button
           className={`chat-rail-btn${running.size > 0 ? " busy" : ""}`}
           onClick={onToggle}
-          title="Claude を開く（⌘L）"
-          aria-label="Claude を開く"
+          title={t.chat.open}
+          aria-label={t.chat.openLabel}
         >
           <BubbleIcon />
           {running.size > 0 && <span className="chat-rail-dot" />}
@@ -491,7 +458,7 @@ export default function ChatPanel({
       <header className="chat-head" data-tauri-drag-region>
         <div className="chat-head-text" data-tauri-drag-region>
           <span className="chat-head-title" data-tauri-drag-region>
-            {historyOpen ? "履歴" : "Claude"}
+            {historyOpen ? t.chat.history : "Claude"}
           </span>
           {!historyOpen && active && (
             <span className="chat-head-sub" data-tauri-drag-region>
@@ -501,8 +468,8 @@ export default function ChatPanel({
         </div>
         <button
           className={`chat-icon${historyOpen ? " on" : ""}`}
-          title="履歴"
-          aria-label="履歴"
+          title={t.chat.history}
+          aria-label={t.chat.history}
           aria-pressed={historyOpen}
           onClick={() => {
             setHistoryOpen((v) => !v);
@@ -513,8 +480,8 @@ export default function ChatPanel({
         </button>
         <button
           className="chat-icon"
-          title="新しい会話"
-          aria-label="新しい会話"
+          title={t.chat.newChat}
+          aria-label={t.chat.newChat}
           onClick={() => {
             setActiveId(null);
             setHistoryOpen(false);
@@ -524,14 +491,14 @@ export default function ChatPanel({
         >
           <PlusIcon />
         </button>
-        <button className="chat-icon" title="閉じる（⌘L）" aria-label="閉じる" onClick={onToggle}>
+        <button className="chat-icon" title={t.chat.closeTitle} aria-label={t.common.close} onClick={onToggle}>
           <PanelIcon />
         </button>
       </header>
 
       {historyOpen ? (
         <div className="chat-history">
-          {convs.length === 0 && <p className="chat-hint chat-history-empty">まだ会話はありません</p>}
+          {convs.length === 0 && <p className="chat-hint chat-history-empty">{t.chat.noHistory}</p>}
           {convs.map((c) => (
             <div
               key={c.id}
@@ -544,7 +511,7 @@ export default function ChatPanel({
               <div className="chat-history-main">
                 <div className="chat-history-title">{c.title}</div>
                 <div className="chat-history-meta">
-                  {running.has(c.id) ? "返事を書いています" : relTime(c.updatedAt)}
+                  {running.has(c.id) ? t.chat.replying : relTime(c.updatedAt, t)}
                 </div>
               </div>
               {confirmDelete === c.id ? (
@@ -558,17 +525,17 @@ export default function ChatPanel({
                       void reloadConvs();
                     }}
                   >
-                    消す
+                    {t.chat.delete}
                   </button>
                   <button className="chat-link" onClick={() => setConfirmDelete(null)}>
-                    やめる
+                    {t.chat.cancel}
                   </button>
                 </div>
               ) : (
                 <button
                   className="chat-history-x"
-                  title="この会話を消す"
-                  aria-label="この会話を消す"
+                  title={t.chat.deleteConversation}
+                  aria-label={t.chat.deleteConversation}
                   onClick={(e) => {
                     e.stopPropagation();
                     setConfirmDelete(c.id);
@@ -591,24 +558,22 @@ export default function ChatPanel({
         >
           {status?.blocked ? (
             <div className="chat-empty">
-              <p className="chat-empty-title">使えません</p>
+              <p className="chat-empty-title">{t.chat.unavailable}</p>
               <p className="chat-empty-desc">{status.blocked}</p>
             </div>
           ) : shown.length === 0 ? (
             <div className="chat-empty">
-              <p className="chat-empty-title">曲について話す</p>
-              <p className="chat-empty-desc">
-                作りたい曲や、直したいところを書いてください。編集は「適用」を押すまで保存されません。
-              </p>
+              <p className="chat-empty-title">{t.chat.emptyTitle}</p>
+              <p className="chat-empty-desc">{t.chat.emptyDesc}</p>
               <div className="chat-starters">
-                {SUGGESTIONS.map((s) => (
+                {t.chat.suggestions.map((s) => (
                   <button
-                    key={s}
+                    key={s.text}
                     className="chat-starter"
-                    onClick={() => void send(s)}
-                    disabled={!song && s.includes("この曲")}
+                    onClick={() => void send(s.text)}
+                    disabled={!song && s.needsSong}
                   >
-                    {s}
+                    {s.text}
                   </button>
                 ))}
               </div>
@@ -635,7 +600,7 @@ export default function ChatPanel({
             return (
               <div key={edit.songId} className="chat-pending-row">
                 <div className="chat-pending-text">
-                  <span className="chat-pending-title">未適用の編集 · {edit.changes.length}</span>
+                  <span className="chat-pending-title">{t.chat.pending(edit.changes.length)}</span>
                   <span className="chat-pending-song">{edit.title}</span>
                 </div>
                 <button
@@ -643,16 +608,16 @@ export default function ChatPanel({
                   disabled={previewing}
                   onClick={() => void library.previewPending(edit.songId)}
                 >
-                  {previewing ? "試聴中" : "試聴"}
+                  {previewing ? t.common.previewing : t.common.preview}
                 </button>
                 <button className="chat-link" onClick={() => void library.discardEdit(edit.songId)}>
-                  破棄
+                  {t.common.discard}
                 </button>
                 <button
                   className="chat-btn is-primary"
                   onClick={() => void library.applyEdit(edit.songId)}
                 >
-                  適用
+                  {t.common.apply}
                 </button>
               </div>
             );
@@ -701,10 +666,10 @@ export default function ChatPanel({
           disabled={!!status?.blocked}
           placeholder={
             attachments.length > 0
-              ? "選んだ範囲をどうしたいか書く"
+              ? t.chat.placeholderSelection
               : song
-                ? `「${song.title}」について頼む`
-                : "作りたい曲を書く"
+                ? t.chat.placeholderSong(song.title)
+                : t.chat.placeholderNew
           }
           onChange={(e) => setDraft(e.target.value)}
           onInput={(e) => {
@@ -721,19 +686,21 @@ export default function ChatPanel({
           }}
         />
         <div className="chat-compose-foot">
-          <span className="chat-hint">↵ 送信　⇧↵ 改行</span>
-          <label className="chat-model" title="この会話で使うモデル（常にその系統の最新版）">
+          <span className="chat-hint">{t.chat.sendHint}</span>
+          <label className="chat-model" title={t.chat.modelTitle}>
             <span className="chat-model-badge">
-              {MODELS.find((m) => m.value === model)?.label ?? (model ? modelName(model) : "")}
+              {model == null
+                ? t.chat.auto
+                : (MODELS.find((m) => m.value === model)?.label ?? modelName(model))}
             </span>
             <select
               value={model ?? ""}
               onChange={(e) => void chooseModel(e.target.value || null)}
-              aria-label="モデル"
+              aria-label={t.chat.model}
             >
               {MODELS.map((m) => (
-                <option key={m.label} value={m.value ?? ""}>
-                  {m.label}
+                <option key={m.value ?? ""} value={m.value ?? ""}>
+                  {m.label ?? t.chat.auto}
                 </option>
               ))}
             </select>
@@ -741,14 +708,12 @@ export default function ChatPanel({
           <label
             className={`chat-model${effortOn ? "" : " is-off"}`}
             title={
-              effortOn
-                ? "考える深さ（effort）。上げるほど丁寧になり、時間と使用量が増える"
-                : "Haiku では effort を選べません"
+              effortOn ? t.chat.effortTitle : t.chat.effortUnavailable
             }
           >
             <span className="chat-model-badge">
               <span className="chat-model-key">effort</span>
-              {effortOn ? (effort ? EFFORT_LABEL[effort] : "自動") : "—"}
+              {effortOn ? (effort ? EFFORT_LABEL[effort] : t.chat.auto) : "—"}
             </span>
             <select
               value={effort ?? ""}
@@ -756,7 +721,7 @@ export default function ChatPanel({
               onChange={(e) => void chooseEffort(EFFORTS.find((l) => l === e.target.value) ?? null)}
               aria-label="effort"
             >
-              <option value="">自動</option>
+              <option value="">{t.chat.auto}</option>
               {EFFORTS.map((l) => (
                 <option key={l} value={l}>
                   {EFFORT_LABEL[l]}
@@ -769,7 +734,7 @@ export default function ChatPanel({
               className="chat-btn"
               onClick={() => activeId != null && void stopChat(activeId)}
             >
-              止める
+              {t.chat.stop}
             </button>
           ) : (
             <button
@@ -777,7 +742,7 @@ export default function ChatPanel({
               disabled={(!draft.trim() && attachments.length === 0) || !!status?.blocked}
               onClick={() => void send()}
             >
-              送信
+              {t.chat.send}
             </button>
           )}
         </div>
@@ -803,6 +768,7 @@ function AttachmentChip({
   onRemove: () => void;
   onToggleTrack: (track: number) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const choosable = selection.tracks.length > 1;
   return (
@@ -810,14 +776,14 @@ function AttachmentChip({
       <button
         className="chat-chip-main"
         onClick={() => choosable && setOpen((v) => !v)}
-        title={`${otherSong ? `「${selection.songTitle}」の範囲\n` : ""}${selectionContext(selection, number)}`}
+        title={`${otherSong ? `${t.chat.rangeIn(selection.songTitle)}\n` : ""}${selectionContext(selection, number)}`}
       >
         <span className="chat-chip-n">{number}</span>
         {otherSong && <span className="chat-chip-song">{selection.songTitle}</span>}
         {selectionLabel(selection)}
         {choosable && <span className="chat-chip-caret">▾</span>}
       </button>
-      <button className="chat-chip-x" onClick={onRemove} aria-label="この範囲を外す">
+      <button className="chat-chip-x" onClick={onRemove} aria-label={t.chat.removeRange}>
         ×
       </button>
       {open && (
@@ -838,15 +804,14 @@ function AttachmentChip({
   );
 }
 
-/** "たった今", "5分前", "昨日" — for the history list. */
-function relTime(unix: number): string {
+/** "Just now", "5 min ago", "Yesterday" — for the history list. */
+function relTime(unix: number, t: Messages): string {
   const mins = Math.floor((Date.now() / 1000 - unix) / 60);
-  if (mins < 1) return "たった今";
-  if (mins < 60) return `${mins}分前`;
-  if (mins < 60 * 24) return `${Math.floor(mins / 60)}時間前`;
-  if (mins < 60 * 48) return "昨日";
-  const d = new Date(unix * 1000);
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
+  if (mins < 1) return t.common.justNow;
+  if (mins < 60) return t.common.minutesAgo(mins);
+  if (mins < 60 * 24) return t.common.hoursAgo(Math.floor(mins / 60));
+  if (mins < 60 * 48) return t.common.yesterday;
+  return t.common.date(new Date(unix * 1000));
 }
 
 type ToolPart = Extract<Part, { type: "tool" }>;
@@ -863,6 +828,7 @@ function group(parts: Part[]): (Part | ToolPart[])[] {
 }
 
 function MessageView({ message, streaming }: { message: Message; streaming: boolean }) {
+  const { t } = useI18n();
   if (message.role === "user") {
     const text = message.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
     const ranges = message.parts.filter(
@@ -889,14 +855,14 @@ function MessageView({ message, streaming }: { message: Message; streaming: bool
     .find((p): p is ToolPart => p.type === "tool" && p.status === "running");
   const last = message.parts[message.parts.length - 1];
   const working = running
-    ? `${TOOL_LABEL[running.name] ?? running.name}…`
+    ? `${t.chat.tools[running.name] ?? running.name}…`
     : last?.type === "text"
-      ? "書いています"
-      : "考えています";
+      ? t.chat.writing
+      : t.chat.thinking;
   const meta = [
     message.model ? modelName(message.model) : null,
     message.effort ? `effort ${EFFORT_LABEL[message.effort]}` : null,
-    message.durationMs != null ? `${Math.round(message.durationMs / 1000)}秒` : null,
+    message.durationMs != null ? t.chat.seconds(Math.round(message.durationMs / 1000)) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -922,7 +888,7 @@ function MessageView({ message, streaming }: { message: Message; streaming: bool
         </div>
       )}
       {message.error && <div className="chat-a is-error">{message.error}</div>}
-      {message.stopped && <div className="chat-meta">止めました</div>}
+      {message.stopped && <div className="chat-meta">{t.chat.stopped}</div>}
       {!streaming && meta && <div className="chat-meta">{meta}</div>}
     </div>
   );
@@ -947,23 +913,22 @@ function ToolLog({ tools }: { tools: ToolPart[] }) {
 }
 
 function ToolRow({ part }: { part: ToolPart }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const summary = summarize(part.input);
+  const summary = summarize(part.input, t.chat);
   return (
     <div className={`chat-tool is-${part.status}${open ? " is-open" : ""}`}>
       <button className="chat-tool-row" onClick={() => setOpen((v) => !v)} disabled={!part.result}>
-        <span className="chat-tool-mark" aria-label={STATUS_LABEL[part.status]}>
+        <span className="chat-tool-mark" aria-label={t.chat.status[part.status]}>
           {part.status === "ok" ? <CheckIcon /> : part.status === "error" ? "!" : null}
         </span>
-        <span className="chat-tool-name">{TOOL_LABEL[part.name] ?? part.name}</span>
+        <span className="chat-tool-name">{t.chat.tools[part.name] ?? part.name}</span>
         {summary && <span className="chat-tool-sum">{summary}</span>}
       </button>
       {open && part.result && <pre className="chat-tool-result">{part.result}</pre>}
     </div>
   );
 }
-
-const STATUS_LABEL = { running: "実行中", ok: "完了", error: "失敗" } as const;
 
 /* ---------- icons (1.6px strokes, like the rest of the app) ---------- */
 

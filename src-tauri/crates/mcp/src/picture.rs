@@ -31,22 +31,22 @@ mod platform {
     /// Pages `first` to `last` (from 1) of a PDF.
     pub fn pdf_pages(bytes: &[u8], first: usize, last: usize) -> Result<Pages, String> {
         let data = CFData::from_bytes(bytes);
-        let provider = CGDataProvider::with_cf_data(Some(&data)).ok_or("PDF を読めませんでした。")?;
-        let doc = CGPDFDocument::with_provider(Some(&provider)).ok_or("PDF を読めませんでした。")?;
+        let provider = CGDataProvider::with_cf_data(Some(&data)).ok_or("Could not read the PDF.")?;
+        let doc = CGPDFDocument::with_provider(Some(&provider)).ok_or("Could not read the PDF.")?;
         if CGPDFDocument::is_encrypted(Some(&doc)) && !CGPDFDocument::is_unlocked(Some(&doc)) {
-            return Err("パスワードで保護された PDF は開けません。".into());
+            return Err("Password-protected PDFs can't be opened.".into());
         }
         let count = CGPDFDocument::number_of_pages(Some(&doc));
         if count == 0 {
-            return Err("ページのない PDF です。".into());
+            return Err("The PDF has no pages.".into());
         }
         if first > count {
-            return Err(format!("この PDF は{count}ページまでです。"));
+            return Err(format!("This PDF has only {count} page{}.", if count == 1 { "" } else { "s" }));
         }
 
         let mut images = Vec::new();
         for number in first.max(1)..=last.min(count) {
-            let page = CGPDFDocument::page(Some(&doc), number).ok_or("ページを読めませんでした。")?;
+            let page = CGPDFDocument::page(Some(&doc), number).ok_or("Could not read the page.")?;
             let crop = CGPDFPage::box_rect(Some(&page), CGPDFBox::CropBox);
             // A page may be stored sideways and marked to be turned for display.
             let turned = CGPDFPage::rotation_angle(Some(&page)).rem_euclid(180) != 0;
@@ -83,7 +83,7 @@ mod platform {
     /// than a rendered page. Never enlarged.
     pub fn scan(bytes: &[u8]) -> Result<Vec<u8>, String> {
         let data = CFData::from_bytes(bytes);
-        let provider = CGDataProvider::with_cf_data(Some(&data)).ok_or("画像を読めませんでした。")?;
+        let provider = CGDataProvider::with_cf_data(Some(&data)).ok_or("Could not read the image.")?;
         let intent = CGColorRenderingIntent::RenderingIntentDefault;
         // SAFETY: a null decode array means "no remapping", as documented.
         let image = unsafe {
@@ -93,10 +93,10 @@ mod platform {
                 CGImage::with_jpeg_data_provider(Some(&provider), std::ptr::null(), true, intent)
             }
         }
-        .ok_or("画像を読めませんでした（PNG か JPEG のみ）。")?;
+        .ok_or("Could not read the image (PNG or JPEG only).")?;
         let (w, h) = (CGImage::width(Some(&image)) as f64, CGImage::height(Some(&image)) as f64);
         if w < 1.0 || h < 1.0 {
-            return Err("空の画像です。".into());
+            return Err("The image is empty.".into());
         }
         let scale = (LONG_EDGE / w.max(h)).min(1.0);
         let (pw, ph) = (w * scale, h * scale);
@@ -124,7 +124,7 @@ mod platform {
                 CGImageAlphaInfo::None.0,
             )
         }
-        .ok_or("描画の準備ができませんでした。")?;
+        .ok_or("Could not set up rendering.")?;
         let full = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(pw as f64, ph as f64));
         CGContext::set_gray_fill_color(Some(&ctx), 1.0, 1.0);
         CGContext::fill_rect(Some(&ctx), full);
@@ -140,11 +140,11 @@ mod platform {
     use super::Pages;
 
     pub fn pdf_pages(_bytes: &[u8], _first: usize, _last: usize) -> Result<Pages, String> {
-        Err("PDF の楽譜を読めるのは macOS だけです。".into())
+        Err("Reading PDF sheet music is only supported on macOS.".into())
     }
 
     pub fn scan(_bytes: &[u8]) -> Result<Vec<u8>, String> {
-        Err("画像の楽譜を読めるのは macOS だけです。".into())
+        Err("Reading sheet music images is only supported on macOS.".into())
     }
 }
 

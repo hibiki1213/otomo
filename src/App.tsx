@@ -5,10 +5,12 @@ import Player from "@/components/Player";
 import Sidebar from "@/components/Sidebar";
 import type { PlayerState } from "@/lib/midiEngine";
 import type { RollSelection } from "@/lib/rollSelection";
+import { useI18n } from "@/lib/i18n";
 import { libraryAvailable } from "@/lib/songsApi";
 import { useSongLibrary } from "@/lib/useSongLibrary";
 
 export default function App() {
+  const { t } = useI18n();
   const library = useSongLibrary();
   const [state, setState] = useState<PlayerState>("idle");
   const [dropping, setDropping] = useState(false);
@@ -155,7 +157,7 @@ export default function App() {
       )}
       {dropping && (
         <div className="drop-overlay">
-          <p>MIDI ファイルを追加</p>
+          <p>{t.app.dropOverlay}</p>
         </div>
       )}
     </div>

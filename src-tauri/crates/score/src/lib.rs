@@ -85,7 +85,7 @@ impl KeyChange {
                 let minor = match mode.as_str() {
                     "minor" | "min" | "m" | "短調" => true,
                     "major" | "maj" | "長調" => false,
-                    _ => return Err(format!("{text}: 調は「D major」「B minor」のように書きます")),
+                    _ => return Err(format!("{text}: write keys like \"D major\" or \"B minor\"")),
                 };
                 (tonic, minor)
             }
@@ -98,7 +98,7 @@ impl KeyChange {
             .iter()
             .position(|k| *k == tonic)
             .map(|i| (i as i8 - 7, minor))
-            .ok_or_else(|| format!("{text}: 調号にできない主音です"))
+            .ok_or_else(|| format!("{text}: there is no key signature for that tonic"))
     }
 }
 
@@ -192,17 +192,17 @@ pub struct Score {
 impl Score {
     /// Parse a Standard MIDI File.
     pub fn parse(bytes: &[u8]) -> Result<Self, String> {
-        let smf = Smf::parse(bytes).map_err(|e| format!("MIDI を読めませんでした: {e}"))?;
+        let smf = Smf::parse(bytes).map_err(|e| format!("Could not read the MIDI file: {e}"))?;
         let ppq = match smf.header.timing {
             Timing::Metrical(t) => u32::from(t.as_int()),
             // SMPTE-timed files are vanishingly rare and would need a
             // different clock throughout; say so instead of guessing.
             Timing::Timecode(..) => {
-                return Err("SMPTE タイムコードの MIDI には未対応です".into())
+                return Err("MIDI files timed in SMPTE timecode are not supported".into())
             }
         };
         if ppq == 0 {
-            return Err("MIDI の分解能が 0 です".into());
+            return Err("The MIDI file's resolution (ticks per beat) is 0".into());
         }
 
         let mut score = Score {

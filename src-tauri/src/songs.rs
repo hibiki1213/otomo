@@ -18,6 +18,7 @@ use sha2::{Digest, Sha256};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager, State};
 
+use crate::i18n::tr;
 use crate::instruments::InstrumentChoice;
 
 /// Opened once at startup and shared by every command.
@@ -331,7 +332,7 @@ pub fn songs_pending(library: State<'_, SongLibrary>) -> Result<Vec<PendingEdit>
 #[tauri::command]
 pub fn songs_pending_data(library: State<'_, SongLibrary>, id: i64) -> Result<Response, String> {
     let bytes = std::fs::read(library.pending_path(id))
-        .map_err(|_| "この曲に未適用の編集はありません".to_string())?;
+        .map_err(|_| tr!("この曲に未適用の編集はありません", "This song has no pending edits"))?;
     Ok(Response::new(bytes))
 }
 
@@ -340,9 +341,9 @@ pub fn songs_pending_data(library: State<'_, SongLibrary>, id: i64) -> Result<Re
 #[tauri::command]
 pub fn songs_apply_pending(library: State<'_, SongLibrary>, id: i64) -> Result<SongRecord, String> {
     let data = std::fs::read(library.pending_path(id))
-        .map_err(|_| "この曲に未適用の編集はありません".to_string())?;
+        .map_err(|_| tr!("この曲に未適用の編集はありません", "This song has no pending edits"))?;
     if data.is_empty() {
-        return Err("編集後のファイルが空です".into());
+        return Err(tr!("編集後のファイルが空です", "The edited file is empty"));
     }
     let hash = format!("{:x}", Sha256::digest(&data));
     let path = library.path_for(&hash);
@@ -387,10 +388,10 @@ pub fn songs_undo_apply(library: State<'_, SongLibrary>, id: i64) -> Result<Song
         .optional()
         .map_err(|e| e.to_string())?
         .flatten();
-    let previous = previous.ok_or("この曲に戻せる版はありません")?;
+    let previous = previous.ok_or_else(|| tr!("この曲に戻せる版はありません", "This song has no earlier version to go back to"))?;
     let bytes = std::fs::metadata(library.path_for(&previous))
         .map(|m| m.len() as i64)
-        .map_err(|_| "前の版のファイルが見つかりません".to_string())?;
+        .map_err(|_| tr!("前の版のファイルが見つかりません", "The earlier version's file is missing"))?;
     db.execute(
         "UPDATE songs
          SET hash = ?2, previous_hash = NULL, bytes = ?3, duration = 0, track_count = 0
@@ -442,12 +443,18 @@ pub async fn songs_import(library: State<'_, SongLibrary>, path: String) -> Resu
         "musicxml" | "xml" | "mxl" => {
             let data = tokio::fs::read(&p).await.map_err(|e| e.to_string())?;
             if !otomo_score::is_musicxml(&data) {
-                return Err(format!("{stem}.{ext} は MusicXML の楽譜ではありません。"));
+                return Err(tr!("{stem}.{ext} は MusicXML の楽譜ではありません。", "{stem}.{ext} is not a MusicXML score."));
             }
-            let smf = otomo_score::read_musicxml(&data)?.score.to_smf()?;
+            // The reader's errors are in English (they are Claude's too).
+            let smf = otomo_score::read_musicxml(&data)
+                .and_then(|read| read.score.to_smf())
+                .map_err(|e| tr!("{stem}.{ext} を読み込めませんでした: {e}", "Couldn't import {stem}.{ext}: {e}"))?;
             library.import(&smf, &format!("{stem}.mid"), Some(&path))
         }
-        _ => Err("MIDI（.mid / .midi）か MusicXML（.musicxml / .xml / .mxl）のファイルを選択してください。".into()),
+        _ => Err(tr!(
+            "MIDI（.mid / .midi）か MusicXML（.musicxml / .xml / .mxl）のファイルを選択してください。",
+            "Choose a MIDI (.mid / .midi) or MusicXML (.musicxml / .xml / .mxl) file."
+        )),
     }
 }
 
@@ -481,7 +488,7 @@ pub fn songs_played(
 pub fn songs_rename(library: State<'_, SongLibrary>, id: i64, title: String) -> Result<(), String> {
     let title = title.trim();
     if title.is_empty() {
-        return Err("名前を入力してください。".into());
+        return Err(tr!("名前を入力してください。", "Enter a name."));
     }
     library
         .lock()?

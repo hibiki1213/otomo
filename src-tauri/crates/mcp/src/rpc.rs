@@ -134,7 +134,7 @@ fn error_response(id: Value, code: i32, message: &str) -> String {
 pub fn need_i64(args: &Value, key: &str) -> Result<i64, String> {
     args.get(key)
         .and_then(Value::as_i64)
-        .ok_or_else(|| format!("{key} は必須です（整数）"))
+        .ok_or_else(|| format!("{key} is required (an integer)"))
 }
 
 pub fn opt_i64(args: &Value, key: &str) -> Option<i64> {
@@ -144,7 +144,7 @@ pub fn opt_i64(args: &Value, key: &str) -> Option<i64> {
 pub fn need_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("{key} は必須です（文字列）"))
+        .ok_or_else(|| format!("{key} is required (a string)"))
 }
 
 pub fn opt_str(args: &Value, key: &str) -> Option<String> {

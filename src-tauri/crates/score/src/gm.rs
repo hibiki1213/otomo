@@ -85,11 +85,11 @@ pub fn program_number(text: &str) -> Result<u8, String> {
         if n <= 127 {
             return Ok(n);
         }
-        return Err(format!("{text}: General MIDI の音色番号は 0〜127 です"));
+        return Err(format!("{text}: General MIDI program numbers are 0–127"));
     }
     let wanted = simplify(text);
     if wanted.is_empty() {
-        return Err("楽器名を指定してください".into());
+        return Err("Give an instrument name".into());
     }
     if let Some(i) = PROGRAMS.iter().position(|p| simplify(p) == wanted) {
         return Ok(i as u8);
@@ -103,9 +103,9 @@ pub fn program_number(text: &str) -> Result<u8, String> {
     match near.len() {
         1 => Ok(PROGRAMS.iter().position(|p| *p == near[0]).expect("just found") as u8),
         0 => Err(format!(
-            "{text}: General MIDI にその楽器はありません。\"Flute\"、\"Trumpet\"、\"String Ensemble 1\" のように指定してください。"
+            "{text}: there is no such General MIDI instrument. Use names like \"Flute\", \"Trumpet\" or \"String Ensemble 1\"."
         )),
-        _ => Err(format!("{text}: どれを指しますか — {}", near.join(" / "))),
+        _ => Err(format!("{text}: which one do you mean? {}", near.join(" / "))),
     }
 }
 
@@ -135,10 +135,10 @@ mod tests {
     #[test]
     fn a_wrong_instrument_name_suggests_rather_than_guesses() {
         let err = program_number("Trombone Section").unwrap_err();
-        assert!(err.contains("ありません"), "{err}");
+        assert!(err.contains("no such"), "{err}");
         let err = program_number("piano").unwrap_err();
-        assert!(err.contains("どれを指しますか") && err.contains("Piano"), "{err}");
-        assert!(program_number("200").unwrap_err().contains("0〜127"));
+        assert!(err.contains("which one") && err.contains("Piano"), "{err}");
+        assert!(program_number("200").unwrap_err().contains("0–127"));
     }
 
     #[test]

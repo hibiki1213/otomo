@@ -3,7 +3,7 @@
 //! A tool call never changes the library. It reads the song (the staged
 //! version if there is one, so a sequence of edits builds up), applies one
 //! change, and writes the result to `pending/<song_id>.mid` next to a note of
-//! what was done. The app shows that note with **適用 / 破棄**, and can play
+//! what was done. The app shows that note with **Apply / Discard**, and can play
 //! the staged version so the change can be heard before it is kept.
 //!
 //! Plain MIDI on purpose: the app can load a pending file with exactly the
@@ -86,7 +86,7 @@ pub fn stage(data_dir: &Path, song: &Song, score: &Score, change: &str) -> Resul
     std::fs::write(note_path(data_dir, song.id), note.to_string()).map_err(|e| e.to_string())?;
 
     Ok(format!(
-        "{change}\n（未適用。Otomo で「適用」を押すと確定します。play で試聴できます）"
+        "{change}\n(Pending: not saved until the user presses Apply in Otomo. Preview it with play.)"
     ))
 }
 

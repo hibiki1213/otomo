@@ -4,6 +4,7 @@ import {
   openPluginEditor,
   pickSfzFile,
 } from "@/lib/instrumentsApi";
+import { useI18n } from "@/lib/i18n";
 import type { TrackInstruments } from "@/lib/useTrackInstruments";
 
 const SF2_VALUE = "sf2";
@@ -19,6 +20,7 @@ export default function InstrumentPicker({
   trackName: string;
   instruments: TrackInstruments;
 }) {
+  const { t } = useI18n();
   const state = instruments.states[track];
   if (!state) return null;
   const value = choiceKey(state.choice);
@@ -31,7 +33,7 @@ export default function InstrumentPicker({
       const path = await pickSfzFile();
       if (!path) return;
       try {
-        // Kept as マイ音源, so it is offered again and Claude can use it.
+        // Kept in the user library, so it is offered again and Claude can use it.
         const entry = await addUserInstrument(path);
         void instruments.refreshCatalog();
         void instruments.apply(track, entry.choice, entry.name);
@@ -62,10 +64,10 @@ export default function InstrumentPicker({
         value={value}
         disabled={state.loading}
         onChange={(e) => void onChange(e.target.value)}
-        aria-label="音源"
-        title="このトラックを鳴らす音源"
+        aria-label={t.picker.label}
+        title={t.picker.title}
       >
-        <option value={SF2_VALUE}>GM音源（SoundFont）</option>
+        <option value={SF2_VALUE}>{t.picker.soundfont}</option>
         {[...libraries].map(([lib, list]) => (
           <optgroup key={lib} label={lib}>
             {list.map((i) => (
@@ -76,10 +78,10 @@ export default function InstrumentPicker({
           </optgroup>
         ))}
         {state.choice.kind === "sfz" && !known && (
-          <option value={value}>{state.label}（SFZファイル）</option>
+          <option value={value}>{t.picker.sfzFile(state.label)}</option>
         )}
         {instruments.plugins.length > 0 && (
-          <optgroup label="プラグイン（AudioUnit）">
+          <optgroup label={t.picker.plugins}>
             {instruments.plugins.map((p) => (
               <option key={p.id} value={`au:${p.id}`}>
                 {p.manufacturer ? `${p.manufacturer} – ` : ""}
@@ -88,7 +90,7 @@ export default function InstrumentPicker({
             ))}
           </optgroup>
         )}
-        <option value={PICK_VALUE}>SFZファイルを選ぶ…</option>
+        <option value={PICK_VALUE}>{t.picker.pickSfz}</option>
       </select>
       {state.choice.kind === "audioUnit" && !state.loading && (
         <button
@@ -98,15 +100,15 @@ export default function InstrumentPicker({
               (e) => console.error(e)
             )
           }
-          title="プラグインの画面を開く"
+          title={t.picker.editorTitle}
         >
-          エディタ
+          {t.picker.editor}
         </button>
       )}
-      {state.loading && <span className="picker-status">読込中…</span>}
+      {state.loading && <span className="picker-status">{t.common.loading}</span>}
       {state.error && (
         <span className="picker-error" title={state.error}>
-          読み込めませんでした
+          {t.picker.failed}
         </span>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { messages } from "./i18n";
 import type { SongInfo } from "./midiEngine";
 import type { SongSource } from "@/components/Player";
 import {
@@ -102,7 +103,7 @@ export function useSongLibrary() {
         });
       } catch (e) {
         console.error(e);
-        setError(`「${song.title}」を開けませんでした。`);
+        setError(messages().app.openFailed(song.title));
       }
     },
     []

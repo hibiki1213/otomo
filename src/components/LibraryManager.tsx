@@ -8,6 +8,7 @@ import {
   type LibraryProgress,
   type LibraryStatus,
 } from "@/lib/instrumentsApi";
+import { useI18n } from "@/lib/i18n";
 import type { TrackInstruments } from "@/lib/useTrackInstruments";
 
 async function openExternal(url: string) {
@@ -23,6 +24,7 @@ export default function LibraryManager({
   instruments: TrackInstruments;
   onClose: () => void;
 }) {
+  const { t, lang } = useI18n();
   const [libs, setLibs] = useState<LibraryStatus[]>([]);
   const [progress, setProgress] = useState<Record<string, LibraryProgress>>({});
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +52,12 @@ export default function LibraryManager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Names and descriptions come from the backend in the current language.
+  useEffect(() => {
+    if (libs.length > 0) void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -71,8 +79,8 @@ export default function LibraryManager({
 
   const remove = async (lib: LibraryStatus) => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
-    const ok = await ask(`「${lib.name}」を削除しますか？（あとで再ダウンロードできます）`, {
-      title: "音源ライブラリ",
+    const ok = await ask(t.libraries.confirmRemove(lib.name), {
+      title: t.libraries.title,
       kind: "warning",
     });
     if (!ok) return;
@@ -90,20 +98,17 @@ export default function LibraryManager({
       <div
         className="modal"
         role="dialog"
-        aria-label="音源ライブラリ"
+        aria-label={t.libraries.title}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-head">
-          <h2>音源ライブラリ</h2>
-          <button className="modal-close" onClick={onClose} aria-label="閉じる">
+          <h2>{t.libraries.title}</h2>
+          <button className="modal-close" onClick={onClose} aria-label={t.common.close}>
             ×
           </button>
         </div>
 
-        <p className="modal-lead">
-          無料の高品質な音源をダウンロードすると、曲の各トラックに合う楽器が自動で割り当てられます。
-          割り当てられない楽器は GM 音源（SoundFont）で鳴ります。
-        </p>
+        <p className="modal-lead">{t.libraries.lead}</p>
 
         <label className="modal-toggle">
           <input
@@ -111,21 +116,21 @@ export default function LibraryManager({
             checked={instruments.autoAssign}
             onChange={(e) => instruments.setAutoAssign(e.target.checked)}
           />
-          曲を開いたときに自動で割り当てる
+          {t.libraries.autoAssign}
         </label>
         <div className="modal-actions">
           <button className="btn-ghost" onClick={instruments.reassign}>
-            いまの曲に自動割り当て
+            {t.libraries.assignNow}
           </button>
           <button className="btn-ghost" onClick={instruments.resetAll}>
-            すべて GM 音源に戻す
+            {t.libraries.resetAll}
           </button>
         </div>
 
         {error && <div className="error">{error}</div>}
 
         <ul className="lib-list">
-          {libs.length === 0 && <li className="lib-empty">音源カタログを読み込み中…</li>}
+          {libs.length === 0 && <li className="lib-empty">{t.libraries.loadingCatalog}</li>}
           {libs.map((lib) => {
             const p = progress[lib.id];
             const busy = lib.installing;
@@ -138,18 +143,18 @@ export default function LibraryManager({
                 <div className="lib-main">
                   <div className="lib-name">
                     {lib.name}
-                    {lib.installed && <span className="lib-badge">インストール済み</span>}
+                    {lib.installed && <span className="lib-badge">{t.libraries.installed}</span>}
                   </div>
                   <div className="lib-desc">{lib.description}</div>
                   <div className="lib-meta">
                     {formatBytes(lib.downloadSize)} · {lib.license} ·{" "}
                     <button className="link-btn" onClick={() => void openExternal(lib.homepage)}>
-                      配布元
+                      {t.libraries.homepage}
                     </button>
                   </div>
                   {lib.installed && lib.instruments.length > 0 && (
                     <div className="lib-instruments">
-                      {lib.instruments.map((i) => i.name).join("、")}
+                      {lib.instruments.map((i) => i.name).join(t.libraries.listSeparator)}
                     </div>
                   )}
                   <div className="lib-credit">{lib.attribution}</div>
@@ -161,10 +166,10 @@ export default function LibraryManager({
                       />
                       <span>
                         {p?.phase === "extract"
-                          ? "展開中…"
+                          ? t.libraries.extracting
                           : pct !== null
-                          ? `ダウンロード中 ${pct}%`
-                          : "準備中…"}
+                          ? t.libraries.downloading(pct)
+                          : t.libraries.preparing}
                       </span>
                     </div>
                   )}
@@ -172,11 +177,11 @@ export default function LibraryManager({
                 <div className="lib-side">
                   {lib.installed ? (
                     <button className="btn-ghost" disabled={busy} onClick={() => void remove(lib)}>
-                      削除
+                      {t.libraries.remove}
                     </button>
                   ) : (
                     <button className="btn-filled" disabled={busy} onClick={() => void install(lib.id)}>
-                      {busy ? "処理中…" : "ダウンロード"}
+                      {busy ? t.libraries.working : t.libraries.download}
                     </button>
                   )}
                 </div>
@@ -186,9 +191,7 @@ export default function LibraryManager({
         </ul>
 
         {instruments.plugins.length > 0 && (
-          <p className="modal-foot">
-            この Mac の AudioUnit 音源 {instruments.plugins.length} 件も、各トラックの「音源」から選べます。
-          </p>
+          <p className="modal-foot">{t.libraries.plugins(instruments.plugins.length)}</p>
         )}
       </div>
     </div>

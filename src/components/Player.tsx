@@ -17,6 +17,7 @@ import {
   type MarkerEvent,
 } from "@/lib/midiEngine";
 import { gmInstrumentGroups, prettyInstrumentName } from "@/lib/gm";
+import { messages, useI18n } from "@/lib/i18n";
 import { RustEngine } from "@/lib/rustEngine";
 import AcousticsBar from "@/components/AcousticsBar";
 import InstrumentPicker from "@/components/InstrumentPicker";
@@ -248,6 +249,7 @@ export default function Player({
   /** Hands a piano-roll range to the chat; absent when there is no chat. */
   onAttachSelection?: (sel: Omit<RollSelection, "id" | "excluded">) => void;
 }) {
+  const { t } = useI18n();
   const engineRef = useRef<PlaybackEngine | null>(null);
   const lastSongRef = useRef<{
     buffer: ArrayBuffer;
@@ -306,7 +308,7 @@ export default function Player({
       const engine = engineRef.current;
       if (!engine) return;
       setError(null);
-      setProgressLabel("楽器の音源を読み込んでいます…");
+      setProgressLabel(messages().player.loadingSounds);
       try {
         lastSongRef.current = { buffer, name, id };
         const info = await engine.load(buffer, name);
@@ -335,9 +337,7 @@ export default function Player({
         onLoadedRef.current(id, info);
       } catch (e) {
         console.error(e);
-        setError(
-          "このファイルを読み込めませんでした。MIDI 形式と音源のダウンロード状況をご確認ください。"
-        );
+        setError(messages().player.loadFailed);
         setState("idle");
       }
     },
@@ -519,7 +519,8 @@ export default function Player({
     []
   );
 
-  const instrumentGroups = useMemo(() => gmInstrumentGroups(), []);
+  // Family names are in the current language.
+  const instrumentGroups = useMemo(() => gmInstrumentGroups(), [t]);
   const instruments = useTrackInstruments(song, songId, engineKind === "native");
 
   const attachSelection = useMemo(() => {
@@ -536,7 +537,7 @@ export default function Player({
     if (!song) return null;
     return (
       <div className="tracks">
-        <div className="tracks-head">トラック · {song.tracks.length}</div>
+        <div className="tracks-head">{t.player.tracks(song.tracks.length)}</div>
         {song.tracks.map((track) => {
           const currentProgram =
             trackPrograms[track.index] ?? track.program;
@@ -544,7 +545,7 @@ export default function Player({
           const source = instruments.states[track.index];
           const usesSf2 = !source || source.choice.kind === "sf2";
           const instrumentLabel = !usesSf2
-            ? source.label
+            ? instruments.labelOf(source)
             : track.isPercussion
             ? track.instrument
             : prettyInstrumentName(currentProgram);
@@ -568,7 +569,7 @@ export default function Player({
                   {instrumentLabel}
                   {isLoading && (
                     <span style={{ color: "var(--accent)", marginLeft: 6 }}>
-                      読込中…
+                      {t.common.loading}
                     </span>
                   )}
                   {" · "}
@@ -594,8 +595,8 @@ export default function Player({
                         parseInt(e.target.value, 10)
                       )
                     }
-                    aria-label="楽器を変更"
-                    title="この楽器に変更"
+                    aria-label={t.player.changeInstrument}
+                    title={t.player.changeInstrumentTitle}
                   >
                     {instrumentGroups.map((group) => (
                       <optgroup key={group.family} label={group.family}>
@@ -612,21 +613,21 @@ export default function Player({
               <Fader
                 db={gainsDb[track.index] ?? 0}
                 onChange={(db) => setTrackGainDb(track.index, db)}
-                label={`${track.name} の音量`}
+                label={t.player.volumeOf(track.name)}
               />
               <button
                 className={`solo-btn${soloed[track.index] ? " on" : ""}`}
                 onClick={(e) => toggleSolo(track.index, e.altKey)}
-                aria-label={soloed[track.index] ? "ソロ解除" : "ソロ"}
-                title="ソロ（⌥クリックでこのトラックだけ）"
+                aria-label={soloed[track.index] ? t.player.unsolo : t.player.solo}
+                title={t.player.soloTitle}
               >
                 S
               </button>
               <button
                 className={`mute-btn${muted[track.index] ? " muted" : ""}`}
                 onClick={() => toggleMute(track.index)}
-                aria-label={muted[track.index] ? "ミュート解除" : "ミュート"}
-                title={muted[track.index] ? "ミュート中" : "ミュート"}
+                aria-label={muted[track.index] ? t.player.unmute : t.player.mute}
+                title={muted[track.index] ? t.player.muted : t.player.mute}
               >
                 M
               </button>
@@ -650,6 +651,7 @@ export default function Player({
     changeTrackProgram,
     engineKind,
     instruments,
+    t,
   ]);
 
   const isPlaying = state === "playing";
@@ -752,21 +754,21 @@ export default function Player({
 
           <div className="statusbar">
             <span className="kbd-hint">
-              <kbd>Space</kbd> 再生 / 停止
+              <kbd>Space</kbd> {t.player.hintPlay}
               <span style={{ opacity: 0.5, margin: "0 6px" }}>·</span>
-              <kbd>Cmd</kbd>+<kbd>Wheel</kbd> ズーム
+              <kbd>Cmd</kbd>+<kbd>Wheel</kbd> {t.player.hintZoom}
               <span style={{ opacity: 0.5, margin: "0 6px" }}>·</span>
-              <kbd>Wheel</kbd> スクロール
+              <kbd>Wheel</kbd> {t.player.hintScroll}
             </span>
             {RustEngine.available() && (
               <label className="engine-select">
-                音源エンジン
+                {t.player.engine}
                 <select
                   value={engineKind}
                   onChange={(e) => setEngineKind(e.target.value as EngineKind)}
                 >
-                  <option value="native">ネイティブ（SF2 / Rust）</option>
-                  <option value="web">Web Audio（旧）</option>
+                  <option value="native">{t.player.engineNative}</option>
+                  <option value="web">{t.player.engineWeb}</option>
                 </select>
               </label>
             )}
@@ -788,15 +790,16 @@ export default function Player({
 /* ---------- drop zone ---------- */
 
 function DropZone({ onPick }: { onPick: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="dropzone">
       <div className="dropzone-icon">
         <Icon path={ICON.upload} size={26} />
       </div>
-      <h2>MIDI ファイルをドロップ</h2>
-      <p>開いた曲はライブラリに残ります</p>
+      <h2>{t.player.dropTitle}</h2>
+      <p>{t.player.dropSub}</p>
       <button className="btn-filled" onClick={onPick}>
-        ファイルを選択
+        {t.player.chooseFile}
       </button>
     </div>
   );
@@ -853,10 +856,11 @@ function Fader({
   onChange: (db: number) => void;
   label: string;
 }) {
+  const { t } = useI18n();
   const fill = ((db - FADER_MIN) / (FADER_MAX - FADER_MIN)) * 100;
   const unity = ((0 - FADER_MIN) / (FADER_MAX - FADER_MIN)) * 100;
   return (
-    <div className="fader" title="ダブルクリックで 0 dB に戻す">
+    <div className="fader" title={t.player.faderReset}>
       <div className="fader-track">
         <div className="fader-fill" style={{ width: `${fill}%` }} />
         <div className="fader-unity" style={{ left: `${unity}%` }} />
@@ -909,6 +913,7 @@ function Toolbar({
   onVolume: (v: number) => void;
   onOpen: () => void;
 }) {
+  const { t } = useI18n();
   const tempoVaries = song.bpmMin !== song.bpmMax;
   const tsVaries = song.timeSignatures.length > 1;
   const keyVaries = song.keySignatures.length > 1;
@@ -918,31 +923,31 @@ function Toolbar({
         <button
           className="transport-btn"
           onClick={() => onSkip(-5)}
-          aria-label="5秒戻る"
-          title="5秒戻る"
+          aria-label={t.player.back5}
+          title={t.player.back5}
         >
           <Icon path={ICON.back} size={16} />
         </button>
         <button
           className="transport-btn primary"
           onClick={onTogglePlay}
-          aria-label={isPlaying ? "一時停止" : "再生"}
+          aria-label={isPlaying ? t.player.pause : t.player.play}
         >
           <Icon path={isPlaying ? ICON.pause : ICON.play} size={18} />
         </button>
         <button
           className="transport-btn"
           onClick={onStop}
-          aria-label="停止"
-          title="停止"
+          aria-label={t.player.stop}
+          title={t.player.stop}
         >
           <Icon path={ICON.stop} size={12} />
         </button>
         <button
           className="transport-btn"
           onClick={() => onSkip(5)}
-          aria-label="5秒進む"
-          title="5秒進む"
+          aria-label={t.player.forward5}
+          title={t.player.forward5}
         >
           <Icon path={ICON.forward} size={16} />
         </button>
@@ -1013,14 +1018,14 @@ function Toolbar({
           step={0.01}
           value={volume}
           onChange={(e) => onVolume(Number(e.target.value))}
-          aria-label="音量"
+          aria-label={t.player.volume}
         />
       </div>
 
       <div className="toolbar-sep" />
 
       <button className="btn-ghost" onClick={onOpen}>
-        開く…
+        {t.player.open}
       </button>
     </div>
   );
@@ -1054,6 +1059,7 @@ function PianoRoll({
   /** Drag in the notes area selects a range for this; a click still seeks. */
   onAttach?: (sel: RollSelectionDraft) => void;
 }) {
+  const { t } = useI18n();
   const mainRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playheadRef = useRef<HTMLDivElement | null>(null);
@@ -1732,13 +1738,13 @@ function PianoRoll({
           Piano Roll
         </span>
         {onAttach && (
-          <span className="roll-hint">ドラッグで範囲を選んで AI に渡せます</span>
+          <span className="roll-hint">{t.roll.hint}</span>
         )}
         <div style={{ flex: 1 }} />
         <button
           className={`toggle-chip${follow ? " on" : ""}`}
           onClick={() => setFollow((f) => !f)}
-          title="再生ヘッドに追従"
+          title={t.roll.follow}
         >
           Follow
         </button>
@@ -1746,7 +1752,7 @@ function PianoRoll({
           <button
             className="zoom-btn"
             onClick={() => zoomBy(1 / 1.5)}
-            aria-label="ズームアウト"
+            aria-label={t.roll.zoomOut}
           >
             −
           </button>
@@ -1754,12 +1760,12 @@ function PianoRoll({
           <button
             className="zoom-btn"
             onClick={() => zoomBy(1.5)}
-            aria-label="ズームイン"
+            aria-label={t.roll.zoomIn}
           >
             +
           </button>
         </div>
-        <button className="toggle-chip" onClick={fitAll} title="全体を表示">
+        <button className="toggle-chip" onClick={fitAll} title={t.roll.fitAll}>
           Fit
         </button>
       </div>
@@ -1787,9 +1793,9 @@ function PianoRoll({
               className="roll-selection-btn"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={attachSelection}
-              title="選んだ範囲をチャットに添付（Esc で解除）"
+              title={t.roll.attachTitle}
             >
-              AIに渡す
+              {t.roll.attach}
             </button>
           </div>
         )}
@@ -1877,6 +1883,7 @@ function ViewSwitcher({
   getLivePosition: () => number;
   onAttach?: (sel: RollSelectionDraft) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="view-shell">
       <div className="view-tabs">
@@ -1896,7 +1903,7 @@ function ViewSwitcher({
         <button
           className={`view-toggle${showKeys ? " on" : ""}`}
           onClick={onToggleKeys}
-          title={showKeys ? "鍵盤を非表示" : "鍵盤を表示"}
+          title={showKeys ? t.roll.hideKeys : t.roll.showKeys}
         >
           {showKeys ? "▾" : "▸"} Keyboard
         </button>
@@ -2263,6 +2270,7 @@ function ScoreView({
   onSeek: (ratio: number) => void;
   getLivePosition: () => number;
 }) {
+  const { t } = useI18n();
   void _onSeek;
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const mutedRef = useRef(muted);
@@ -2724,7 +2732,7 @@ function ScoreView({
             onClick={() =>
               setBarsPerPage((n) => Math.max(SCORE_BARS_MIN, n - 1))
             }
-            aria-label="表示小節数を減らす"
+            aria-label={t.score.fewerBars}
             disabled={barsPerPage <= SCORE_BARS_MIN}
           >
             −
@@ -2735,7 +2743,7 @@ function ScoreView({
             onClick={() =>
               setBarsPerPage((n) => Math.min(SCORE_BARS_MAX, n + 1))
             }
-            aria-label="表示小節数を増やす"
+            aria-label={t.score.moreBars}
             disabled={barsPerPage >= SCORE_BARS_MAX}
           >
             +
@@ -2744,13 +2752,13 @@ function ScoreView({
       </div>
       {error && (
         <div className="error" style={{ margin: 12 }}>
-          楽譜の描画に失敗しました：{error}
+          {t.score.renderFailed(error)}
         </div>
       )}
       {!vex && !error && (
         <div className="loading" style={{ padding: 32 }}>
           <div className="spinner" />
-          <p>楽譜エンジンを読み込み中…</p>
+          <p>{t.score.loadingEngine}</p>
         </div>
       )}
       <div className="score-stage">

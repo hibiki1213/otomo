@@ -27,7 +27,7 @@ impl Score {
             smf.tracks.push(part(track, name));
         }
         let mut out = Vec::new();
-        smf.write_std(&mut out).map_err(|e| format!("MIDI を書き出せません: {e}"))?;
+        smf.write_std(&mut out).map_err(|e| format!("Could not write the MIDI file: {e}"))?;
         Ok(out)
     }
 

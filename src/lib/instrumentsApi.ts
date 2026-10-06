@@ -100,7 +100,7 @@ export function removeLibrary(id: string): Promise<void> {
   return invoke("library_remove", { id });
 }
 
-/** SFZ files the user added from disk ("マイ音源"), still in place. */
+/** SFZ files the user added from disk ("My Sounds"), still in place. */
 export function listUserInstruments(): Promise<InstrumentEntry[]> {
   return invoke("library_user_instruments");
 }

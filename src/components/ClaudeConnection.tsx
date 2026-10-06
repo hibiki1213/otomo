@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useI18n } from "@/lib/i18n";
 import { libraryAvailable } from "@/lib/songsApi";
 
 /** See `src-tauri/src/mcp_setup.rs`. */
@@ -22,6 +23,7 @@ interface McpStatus {
  * has to be restarted, which is the step people otherwise miss.
  */
 export default function ClaudeConnection() {
+  const { t } = useI18n();
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -57,10 +59,10 @@ export default function ClaudeConnection() {
   if (!status) return null;
 
   const label = status.connected
-    ? "Claude と接続済み"
+    ? t.connection.connected
     : status.stale
-      ? "接続を更新"
-      : "Claude と接続";
+      ? t.connection.update
+      : t.connection.connect;
 
   return (
     <div className="claude-connect">
@@ -70,21 +72,19 @@ export default function ClaudeConnection() {
         title={status.blocked ?? status.configPath}
         onClick={() =>
           status.connected
-            ? void run("mcp_disconnect", "接続を解除しました。Claude Desktop を再起動すると反映されます。")
-            : void run("mcp_connect", "接続しました。Claude Desktop を再起動してください。")
+            ? void run("mcp_disconnect", t.connection.didDisconnect)
+            : void run("mcp_connect", t.connection.didConnect)
         }
       >
         <span className={`connect-dot${status.connected ? " on" : ""}`} />
-        {busy ? "設定中…" : label}
+        {busy ? t.connection.working : label}
       </button>
 
       {status.connected && !busy && (
-        <p className="connect-note">クリックで解除</p>
+        <p className="connect-note">{t.connection.clickToDisconnect}</p>
       )}
       {status.stale && !busy && (
-        <p className="connect-note">
-          別の場所のサーバーが登録されています。押すとこのアプリのものに直します。
-        </p>
+        <p className="connect-note">{t.connection.stale}</p>
       )}
       {error && <p className="connect-error">{error}</p>}
       {note && !error && <p className="connect-note">{note}</p>}

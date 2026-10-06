@@ -1,3 +1,5 @@
+import { messages } from "./i18n";
+
 // General MIDI program number (0-127) -> soundfont-player instrument name.
 export const GM_SOUNDFONT_NAMES: string[] = [
   "acoustic_grand_piano",
@@ -130,24 +132,6 @@ export const GM_SOUNDFONT_NAMES: string[] = [
   "gunshot",
 ];
 
-// Japanese display labels for the 16 GM instrument families.
-const FAMILY_LABELS = [
-  "ピアノ",
-  "クロマチック・パーカッション",
-  "オルガン",
-  "ギター",
-  "ベース",
-  "ストリングス",
-  "アンサンブル",
-  "ブラス",
-  "リード",
-  "パッド",
-  "シンセ・エフェクト",
-  "エスニック",
-  "パーカッシブ",
-  "サウンドエフェクト",
-];
-
 export function soundfontNameForProgram(program: number): string {
   const p = Math.max(0, Math.min(127, program | 0));
   return GM_SOUNDFONT_NAMES[p];
@@ -162,9 +146,10 @@ export function prettyInstrumentName(program: number): string {
     .join(" ");
 }
 
+/** The program's GM family, in the current language. */
 export function instrumentFamily(program: number): string {
-  const idx = Math.min(FAMILY_LABELS.length - 1, Math.floor(program / 8));
-  return FAMILY_LABELS[idx] ?? "楽器";
+  const { families, instrument } = messages().midi;
+  return families[Math.floor(program / 8)] ?? instrument;
 }
 
 export interface InstrumentChoice {
@@ -177,22 +162,23 @@ export interface InstrumentFamilyGroup {
   instruments: InstrumentChoice[];
 }
 
-/** 16 GM ファミリー × 各 8 楽器のグループ一覧（楽器ピッカー用）。 */
+/** The 16 GM families of 8 programs each, for the instrument picker. */
 export function gmInstrumentGroups(): InstrumentFamilyGroup[] {
+  const families = messages().midi.families;
   const groups: InstrumentFamilyGroup[] = [];
-  for (let f = 0; f < FAMILY_LABELS.length; f++) {
+  for (let f = 0; f < families.length; f++) {
     const instruments: InstrumentChoice[] = [];
     for (let i = 0; i < 8; i++) {
       const program = f * 8 + i;
       if (program > 127) break;
       instruments.push({ program, name: prettyInstrumentName(program) });
     }
-    groups.push({ family: FAMILY_LABELS[f], instruments });
+    groups.push({ family: families[f], instruments });
   }
   return groups;
 }
 
-/** ピアノ系プログラム（0=Acoustic Grand 〜 7=Clavinet）かどうか。 */
+/** Whether the program is a piano (0 = Acoustic Grand to 7 = Clavinet). */
 export function isPianoProgram(program: number): boolean {
   return program >= 0 && program <= 7;
 }

@@ -131,6 +131,9 @@ pub struct Preset {
     pub id: &'static str,
     pub name: &'static str,
     pub description: &'static str,
+    /// The same two in Japanese, for the app's Japanese UI.
+    pub name_ja: &'static str,
+    pub description_ja: &'static str,
     /// General MIDI programs this preset is the better stand-in for.
     pub programs: &'static [u8],
     pub kind: Kind,
@@ -184,8 +187,10 @@ const VIBRATO: Lfo = Lfo { target: LfoTarget::Pitch, wave: Wave::Sine, rate: 5.5
 pub const PRESETS: &[Preset] = &[
     Preset {
         id: "supersaw-lead",
-        name: "スーパーソウ・リード",
-        description: "7本重ねのデチューン・ソウ。トランスやビッグルームの主旋律に。",
+        name: "Supersaw Lead",
+        description: "Seven stacked, detuned saws. For trance and big-room lead melodies.",
+        name_ja: "スーパーソウ・リード",
+        description_ja: "7本重ねのデチューン・ソウ。トランスやビッグルームの主旋律に。",
         programs: &[81, 84],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Saw, 0.8).unison(7, 24.0, 0.85),
@@ -200,8 +205,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "supersaw-chord",
-        name: "スーパーソウ・コード",
-        description: "分厚く広がる和音用。フューチャーベースやEDMのコード、ドロップの壁に。",
+        name: "Supersaw Chords",
+        description: "Thick, wide chords. For future bass and EDM chords, and the wall of sound in a drop.",
+        name_ja: "スーパーソウ・コード",
+        description_ja: "分厚く広がる和音用。フューチャーベースやEDMのコード、ドロップの壁に。",
         programs: &[90],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Saw, 0.8).unison(7, 32.0, 1.0),
@@ -215,8 +222,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "pluck",
-        name: "プラック",
-        description: "弾いてすぐ消える、明るいシンセ・プラック。アルペジオやトロピカルハウスに。",
+        name: "Pluck",
+        description: "A bright synth pluck that dies away right after the attack. For arpeggios and tropical house.",
+        name_ja: "プラック",
+        description_ja: "弾いてすぐ消える、明るいシンセ・プラック。アルペジオやトロピカルハウスに。",
         programs: &[],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Saw, 0.8).unison(3, 12.0, 0.7),
@@ -233,8 +242,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "warm-pad",
-        name: "ウォーム・パッド",
-        description: "ゆっくり立ち上がって、ゆっくり揺れる柔らかいパッド。背景の和音に。",
+        name: "Warm Pad",
+        description: "A soft pad that swells in slowly and sways gently. For background chords.",
+        name_ja: "ウォーム・パッド",
+        description_ja: "ゆっくり立ち上がって、ゆっくり揺れる柔らかいパッド。背景の和音に。",
         programs: &[88, 89, 92, 94, 95],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Saw, 0.7).unison(5, 16.0, 0.9),
@@ -250,8 +261,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "synth-brass",
-        name: "シンセ・ブラス",
-        description: "フィルターが開いていくブラス系。80年代風やシンセウェーブのスタブに。",
+        name: "Synth Brass",
+        description: "Brassy, with a filter that opens as it sounds. For '80s-style and synthwave stabs.",
+        name_ja: "シンセ・ブラス",
+        description_ja: "フィルターが開いていくブラス系。80年代風やシンセウェーブのスタブに。",
         programs: &[62, 63],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Saw, 0.7).unison(3, 10.0, 0.5),
@@ -266,8 +279,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "square-lead",
-        name: "スクエア・リード",
-        description: "芯のある矩形波リード。ディレイ付きで、メロディがよく通ります。",
+        name: "Square Lead",
+        description: "A focused square-wave lead with delay; melodies cut through.",
+        name_ja: "スクエア・リード",
+        description_ja: "芯のある矩形波リード。ディレイ付きで、メロディがよく通ります。",
         programs: &[80],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Pulse(0.5), 0.7).unison(2, 6.0, 0.4),
@@ -284,8 +299,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "chiptune",
-        name: "チップチューン",
-        description: "ファミコン風の細い矩形波。8ビット系やゲーム音楽に。",
+        name: "Chiptune",
+        description: "A thin, NES-style square wave. For 8-bit and game music.",
+        name_ja: "チップチューン",
+        description_ja: "ファミコン風の細い矩形波。8ビット系やゲーム音楽に。",
         programs: &[],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Pulse(0.25), 0.8),
@@ -298,8 +315,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "fm-bell",
-        name: "FM ベル",
-        description: "金属的にきらめくFMベル。ローファイのキーやイントロの飾りに。",
+        name: "FM Bell",
+        description: "A metallic, shimmering FM bell. For lo-fi keys and intro sparkle.",
+        name_ja: "FM ベル",
+        description_ja: "金属的にきらめくFMベル。ローファイのキーやイントロの飾りに。",
         programs: &[98],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Sine, 0.9),
@@ -314,8 +333,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "sub-bass",
-        name: "サブベース",
-        description: "床を揺らす純粋な低音。キックと一緒に鳴らす土台に。",
+        name: "Sub Bass",
+        description: "Pure low end that shakes the floor. The foundation under the kick.",
+        name_ja: "サブベース",
+        description_ja: "床を揺らす純粋な低音。キックと一緒に鳴らす土台に。",
         programs: &[],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Sine, 1.0),
@@ -331,8 +352,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "reese-bass",
-        name: "リース・ベース",
-        description: "うねる2本のデチューン・ソウ。ドラムンベースやダブステップの低音に。",
+        name: "Reese Bass",
+        description: "Two detuned saws beating against each other. For drum & bass and dubstep low end.",
+        name_ja: "リース・ベース",
+        description_ja: "うねる2本のデチューン・ソウ。ドラムンベースやダブステップの低音に。",
         programs: &[38, 87],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Saw, 0.7).pitch(0.0, -14.0).unison(2, 8.0, 0.5),
@@ -350,8 +373,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "wobble-bass",
-        name: "ワブル・ベース",
-        description: "フィルターが周期的に開閉する、ダブステップの定番ベース。",
+        name: "Wobble Bass",
+        description: "The classic dubstep bass, its filter opening and closing in rhythm.",
+        name_ja: "ワブル・ベース",
+        description_ja: "フィルターが周期的に開閉する、ダブステップの定番ベース。",
         programs: &[],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Saw, 0.8).unison(2, 10.0, 0.3),
@@ -370,8 +395,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "acid-bass",
-        name: "アシッド・ベース（303風）",
-        description: "レゾナンスの効いたうねるベースライン。強く弾いた音ほどフィルターが開きます。",
+        name: "Acid Bass (303-style)",
+        description: "A squelchy, resonant bass line. The harder a note is played, the more the filter opens.",
+        name_ja: "アシッド・ベース（303風）",
+        description_ja: "レゾナンスの効いたうねるベースライン。強く弾いた音ほどフィルターが開きます。",
         programs: &[39],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Saw, 1.0),
@@ -396,8 +423,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "808-bass",
-        name: "808 ベース",
-        description: "ピッチが落ちながら長く伸びる、トラップ／ヒップホップの 808。",
+        name: "808 Bass",
+        description: "The long, pitch-dropping 808 of trap and hip-hop.",
+        name_ja: "808 ベース",
+        description_ja: "ピッチが落ちながら長く伸びる、トラップ／ヒップホップの 808。",
         programs: &[],
         kind: Kind::Tonal(Patch {
             osc1: Osc::new(Wave::Sine, 1.0),
@@ -413,8 +442,10 @@ pub const PRESETS: &[Preset] = &[
     },
     Preset {
         id: "edm-drums",
-        name: "EDM ドラム（909/808風）",
-        description: "合成のキック・スネア・クラップ・ハイハット。GM のドラム配列どおりに鳴ります。",
+        name: "EDM Drums (909/808-style)",
+        description: "Synthesized kick, snare, clap and hi-hats, laid out on the General MIDI drum map.",
+        name_ja: "EDM ドラム（909/808風）",
+        description_ja: "合成のキック・スネア・クラップ・ハイハット。GM のドラム配列どおりに鳴ります。",
         programs: &[],
         kind: Kind::Drums,
         gain_db: -14.7,

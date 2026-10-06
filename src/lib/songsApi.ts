@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { messages } from "./i18n";
 
 /** A song in the library (see `src-tauri/src/songs.rs`). */
 export interface SongRecord {
@@ -76,7 +77,7 @@ export const undoApply = (id: number) =>
 export async function pickMidiFiles(): Promise<string[]> {
   const picked = await open({
     multiple: true,
-    filters: [{ name: "MIDI・MusicXML", extensions: ["mid", "midi", "musicxml", "xml", "mxl"] }],
+    filters: [{ name: messages().app.fileFilter, extensions: ["mid", "midi", "musicxml", "xml", "mxl"] }],
   });
   if (!picked) return [];
   return Array.isArray(picked) ? picked : [picked];

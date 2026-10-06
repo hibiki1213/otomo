@@ -40,8 +40,8 @@ impl Score {
             return Ok(());
         }
         Err(match self.tracks.len() {
-            0 => "この曲にはまだトラックがありません。add_track で追加してください。".into(),
-            n => format!("トラック {track} はありません（0〜{}）。", n - 1),
+            0 => "This song has no tracks yet. Add one with add_track.".into(),
+            n => format!("There is no track {track} (tracks are 0–{}).", n - 1),
         })
     }
 
@@ -64,13 +64,13 @@ impl Score {
     ) -> Result<Summary, String> {
         self.check_track(track)?;
         if to < from {
-            return Err("to_bar は from_bar 以上にしてください。".into());
+            return Err("to_bar must be at least from_bar.".into());
         }
         let bars = self.bars();
         let written = parse_passage(notes, from, self.tracks[track].is_percussion())?;
         if let Some(bar) = written.keys().find(|b| **b < from || **b > to) {
             return Err(format!(
-                "{bar}小節目は指定した範囲（{from}〜{to}）の外です。範囲を広げるか、行を分けてください。"
+                "Bar {bar} is outside the given range ({from}–{to}). Widen the range, or write that bar in a separate call."
             ));
         }
 
@@ -84,7 +84,7 @@ impl Score {
                 if offset < 0.0 || offset >= f64::from(bar_ticks) {
                     let (num, den) = bars.time_signature(*bar);
                     return Err(format!(
-                        "{bar}小節目は{num}/{den}拍子なので、拍は 1〜{} の範囲です。",
+                        "Bar {bar} is in {num}/{den}, so beats must be from 1 to {}.",
                         f64::from(num) + 0.999
                     ));
                 }
@@ -112,8 +112,11 @@ impl Score {
         self.recount();
 
         Ok(format!(
-            "トラック{track}「{}」の{from}〜{to}小節を書き換えました（{removed}音 → {count}音）{}",
+            "Rewrote {} of track {track} \"{}\" ({} → {}){}",
+            bar_span(from, to),
             self.tracks[track].display_name(),
+            note_count(removed),
+            note_count(count),
             self.out_of_range(track, from, to)
         ))
     }
@@ -139,10 +142,10 @@ impl Score {
         });
         let added = self.tracks.last().expect("just pushed");
         format!(
-            "トラック{}「{}」（{}）を追加しました",
+            "Added track {} \"{}\" ({})",
             self.tracks.len() - 1,
             added.display_name(),
-            if percussion { "パーカッション" } else { crate::program_name(added.program) }
+            if percussion { "Percussion" } else { crate::program_name(added.program) }
         )
     }
 
@@ -169,9 +172,9 @@ impl Score {
         }
         let part = &self.tracks[track];
         Ok(format!(
-            "トラック{track} を「{}」（{}）にしました",
+            "Set track {track} to \"{}\" ({})",
             part.display_name(),
-            if part.is_percussion() { "パーカッション" } else { crate::program_name(part.program) }
+            if part.is_percussion() { "Percussion" } else { crate::program_name(part.program) }
         ))
     }
 
@@ -179,22 +182,22 @@ impl Score {
         self.check_track(track)?;
         let gone = self.tracks.remove(track);
         self.recount();
-        Ok(format!("トラック{track}「{}」を削除しました", gone.display_name()))
+        Ok(format!("Removed track {track} \"{}\"", gone.display_name()))
     }
 
     /// Set the tempo from `from_bar` on, replacing any change already there.
     pub fn set_tempo(&mut self, bpm: f64, from_bar: u32) -> Result<Summary, String> {
         if !(10.0..=400.0).contains(&bpm) {
-            return Err("テンポは 10〜400 BPM の範囲で指定してください。".into());
+            return Err("The tempo must be between 10 and 400 BPM.".into());
         }
         let tick = self.bars().bar_start(from_bar.max(1));
         self.tempos.retain(|t| t.tick != tick);
         self.tempos.push(TempoChange { tick, us_per_beat: bpm_to_us(bpm) });
         self.tempos.sort_by_key(|t| t.tick);
         Ok(if from_bar <= 1 {
-            format!("テンポを {bpm:.0} BPM にしました")
+            format!("Set the tempo to {bpm:.0} BPM")
         } else {
-            format!("{from_bar}小節目からテンポを {bpm:.0} BPM にしました")
+            format!("Set the tempo to {bpm:.0} BPM from bar {from_bar}")
         })
     }
 
@@ -207,48 +210,49 @@ impl Score {
         from_bar: u32,
     ) -> Result<Summary, String> {
         if !(1..=32).contains(&numerator) || !matches!(denominator, 1 | 2 | 4 | 8 | 16 | 32 | 64) {
-            return Err("拍子は 3/4 や 6/8 のように、分母を 1〜64 の2の冪で指定してください。".into());
+            return Err("Give the time signature like 3/4 or 6/8, with a denominator that is a power of two from 1 to 64.".into());
         }
         let tick = self.bars().bar_start(from_bar.max(1));
         self.time_signatures.retain(|t| t.tick != tick);
         self.time_signatures.push(TimeSigChange { tick, numerator, denominator });
         self.time_signatures.sort_by_key(|t| t.tick);
         Ok(if from_bar <= 1 {
-            format!("拍子を {numerator}/{denominator} にしました")
+            format!("Set the time signature to {numerator}/{denominator}")
         } else {
-            format!("{from_bar}小節目から拍子を {numerator}/{denominator} にしました")
+            format!("Set the time signature to {numerator}/{denominator} from bar {from_bar}")
         })
     }
 
     pub fn set_key(&mut self, sharps: i8, minor: bool) -> Result<Summary, String> {
         if !(-7..=7).contains(&sharps) {
-            return Err("調号は ♯♭ の数で -7〜7 です。".into());
+            return Err("A key signature is a number of sharps/flats from -7 to 7.".into());
         }
         self.key_signatures.retain(|k| k.tick != 0);
         self.key_signatures.insert(0, KeyChange { tick: 0, sharps, minor });
-        Ok(format!("調を {} にしました", self.key_signatures[0].name()))
+        Ok(format!("Set the key to {}", self.key_signatures[0].name()))
     }
 
     /// Open up `count` empty bars before `at_bar`, pushing later music back.
     pub fn insert_bars(&mut self, at_bar: u32, count: u32) -> Result<Summary, String> {
         if count == 0 {
-            return Err("挿入する小節数は 1 以上にしてください。".into());
+            return Err("The number of bars to insert must be at least 1.".into());
         }
         let bars = self.bars();
         let at = bars.bar_start(at_bar.max(1));
         let span: u32 = (0..count).map(|i| bars.bar_ticks(at_bar.max(1) + i)).sum();
         self.shift(at, span as i64);
-        Ok(format!("{at_bar}小節目の前に{count}小節ぶんの空白を入れました"))
+        let empty = if count == 1 { "1 empty bar".to_string() } else { format!("{count} empty bars") };
+        Ok(format!("Inserted {empty} before bar {at_bar}"))
     }
 
     /// Cut `from..=to` out; later music moves up to fill the gap.
     pub fn delete_bars(&mut self, from: u32, to: u32) -> Result<Summary, String> {
         if to < from {
-            return Err("to_bar は from_bar 以上にしてください。".into());
+            return Err("to_bar must be at least from_bar.".into());
         }
         let bars = self.bars();
         if from > bars.count {
-            return Err(format!("この曲は{}小節までです。", bars.count));
+            return Err(format!("This song ends at bar {}.", bars.count));
         }
         let start = bars.bar_start(from);
         let end = bars.bar_start(to) + bars.bar_ticks(to);
@@ -259,7 +263,7 @@ impl Score {
         }
         collapse(&mut self.conductor_extra, start, end);
         self.shift(start, -(span as i64));
-        Ok(format!("{from}〜{to}小節を削除しました"))
+        Ok(format!("Deleted {}", bar_span(from, to)))
     }
 
     /// Move everything at or after `at` by `delta` ticks.
@@ -317,6 +321,24 @@ fn bpm_to_us(bpm: f64) -> u32 {
     (60_000_000.0 / bpm.clamp(10.0, 400.0)).round() as u32
 }
 
+/// "bar 3" or "bars 3–5", for the summaries.
+fn bar_span(from: u32, to: u32) -> String {
+    if from == to {
+        format!("bar {from}")
+    } else {
+        format!("bars {from}–{to}")
+    }
+}
+
+/// "1 note" or "3 notes".
+fn note_count(n: usize) -> String {
+    if n == 1 {
+        "1 note".into()
+    } else {
+        format!("{n} notes")
+    }
+}
+
 impl Score {
     /// A warning when a part has been written outside its instrument's range,
     /// appended to whatever the edit reports.
@@ -349,9 +371,9 @@ impl Score {
         let worst_low = stray.iter().copied().min().unwrap_or(lo);
         let worst_high = stray.iter().copied().max().unwrap_or(hi);
         format!(
-            "\n⚠ {} の音域外が{}音あります（{}〜{}）。{} は {}〜{} です。",
+            "\n⚠ {} outside the range of {} ({}–{}). {} covers {}–{}.",
+            note_count(stray.len()),
             crate::program_name(part.program),
-            stray.len(),
             crate::note_name(worst_low),
             crate::note_name(worst_high),
             crate::program_name(part.program),
@@ -423,7 +445,7 @@ impl Voice {
             "all" | "" => Ok(Voice::All),
             "top" | "melody" | "highest" => Ok(Voice::Top),
             "bottom" | "bass" | "lowest" => Ok(Voice::Bottom),
-            other => Err(format!("voice は \"all\" / \"top\" / \"bottom\" です（{other} は不明）")),
+            other => Err(format!("voice must be \"all\", \"top\" or \"bottom\" (unknown: {other})")),
         }
     }
 }
@@ -447,7 +469,7 @@ impl Score {
         self.check_track(from_track)?;
         self.check_track(to_track)?;
         if to < from {
-            return Err("to_bar は from_bar 以上にしてください。".into());
+            return Err("to_bar must be at least from_bar.".into());
         }
         let bars = self.bars();
         let start = bars.bar_start(from);
@@ -461,9 +483,7 @@ impl Score {
             .copied()
             .collect();
         if taken.is_empty() {
-            return Err(format!(
-                "トラック{from_track}の{from}〜{to}小節には音がありません。"
-            ));
+            return Err(format!("Track {from_track} has no notes in {}.", bar_span(from, to)));
         }
         let chosen = pick_voice(&taken, voice, self.ppq);
 
@@ -472,7 +492,7 @@ impl Score {
             let key = i32::from(note.key) + transpose;
             if !(0..=127).contains(&key) {
                 return Err(format!(
-                    "{transpose}半音動かすと音域を外れます（{} が MIDI の範囲外）。",
+                    "Transposing by {transpose} semitones goes out of range ({} would fall outside MIDI's range).",
                     crate::note_name(note.key)
                 ));
             }
@@ -496,20 +516,19 @@ impl Score {
         self.recount();
 
         let span = to - from + 1;
-        let where_to = if at == from {
-            format!("{from}〜{to}小節")
-        } else {
-            format!("{from}〜{to}小節を{at}小節目から")
-        };
         Ok(format!(
-            "トラック{from_track}「{}」の{where_to}、トラック{to_track}「{}」へ{count}音{}{}（{span}小節）{}",
+            "{} {} from {} of track {from_track} \"{}\" to track {to_track} \"{}\"{}{} ({}){}",
+            if merge { "Layered" } else { "Copied" },
+            note_count(count),
+            bar_span(from, to),
             self.tracks[from_track].display_name(),
             self.tracks[to_track].display_name(),
+            if at == from { String::new() } else { format!(", starting at bar {at}") },
             match transpose {
                 0 => String::new(),
-                n => format!("を{n:+}半音で"),
+                n => format!(", transposed {n:+} semitones"),
             },
-            if merge { "重ねました" } else { "写しました" },
+            if span == 1 { "1 bar".to_string() } else { format!("{span} bars") },
             self.out_of_range(to_track, at.max(1), at.max(1) + (to - from)),
         ))
     }
@@ -526,9 +545,9 @@ impl Score {
             if let Some(rest) = trimmed.strip_prefix('[') {
                 let (number, _) = rest
                     .split_once(']')
-                    .ok_or_else(|| format!("{trimmed}: トラック見出しの ] が閉じていません"))?;
+                    .ok_or_else(|| format!("{trimmed}: the track header is missing its closing ]"))?;
                 let track: usize = number.trim().parse().map_err(|_| {
-                    format!("{trimmed}: トラック見出しは `[0] 名前` の形です")
+                    format!("{trimmed}: a track header looks like `[0] Name`")
                 })?;
                 self.check_track(track)?;
                 sections.push((track, String::new()));
@@ -537,13 +556,13 @@ impl Score {
                 body.push('\n');
             } else if !trimmed.is_empty() {
                 return Err(
-                    "最初に `[0] トラック名` のような見出しが要ります（read_bars の出力と同じ形式）"
+                    "Start with a header such as `[0] Track name` (the same format read_bars prints)"
                         .into(),
                 );
             }
         }
         if sections.is_empty() {
-            return Err("書き込むトラックがありません。".into());
+            return Err("There are no tracks to write.".into());
         }
 
         let mut done = Vec::new();
@@ -606,7 +625,7 @@ fn dynamic_level(text: &str) -> Result<u8, String> {
         "fff" => 127,
         other => {
             return Err(format!(
-                "{other}: 強さは pp / p / mp / mf / f / ff か 1〜127 の数字です"
+                "{other}: a dynamic is pp / p / mp / mf / f / ff or a number 1–127"
             ))
         }
     })
@@ -630,7 +649,7 @@ impl Score {
     ) -> Result<Summary, String> {
         self.check_track(track)?;
         if to < from {
-            return Err("to_bar は from_bar 以上にしてください。".into());
+            return Err("to_bar must be at least from_bar.".into());
         }
         let start_level = dynamic_level(from_level)?;
         let end_level = match to_level {
@@ -655,7 +674,7 @@ impl Score {
             touched += 1;
         }
         if touched == 0 {
-            return Err(format!("トラック{track}の{from}〜{to}小節には音がありません。"));
+            return Err(format!("Track {track} has no notes in {}.", bar_span(from, to)));
         }
 
         let changing = start_level != end_level;
@@ -678,24 +697,31 @@ impl Score {
         let name = self.tracks[track].display_name();
         Ok(if changing {
             format!(
-                "トラック{track}「{name}」の{from}〜{to}小節を {} から {} へ（{touched}音、{}）",
+                "Shaped {} of track {track} \"{name}\" from {} to {} ({}, {})",
+                bar_span(from, to),
                 from_level.trim(),
                 to_level.unwrap_or("").trim(),
-                if end_level > start_level { "クレッシェンド" } else { "ディミヌエンド" }
+                note_count(touched),
+                if end_level > start_level { "crescendo" } else { "diminuendo" }
             )
         } else {
-            format!("トラック{track}「{name}」の{from}〜{to}小節を {} にしました（{touched}音）", from_level.trim())
+            format!(
+                "Set {} of track {track} \"{name}\" to {} ({})",
+                bar_span(from, to),
+                from_level.trim(),
+                note_count(touched)
+            )
         })
     }
 
     /// Bend the tempo across a passage — a ritardando, or a gathering of pace.
     pub fn tempo_curve(&mut self, from: u32, to: u32, from_bpm: f64, to_bpm: f64) -> Result<Summary, String> {
         if to < from {
-            return Err("to_bar は from_bar 以上にしてください。".into());
+            return Err("to_bar must be at least from_bar.".into());
         }
         for bpm in [from_bpm, to_bpm] {
             if !(10.0..=400.0).contains(&bpm) {
-                return Err("テンポは 10〜400 BPM の範囲で指定してください。".into());
+                return Err("The tempo must be between 10 and 400 BPM.".into());
             }
         }
         let bars = self.bars();
@@ -715,8 +741,10 @@ impl Score {
         self.tempos.sort_by_key(|t| t.tick);
         self.tempos.dedup_by_key(|t| t.tick);
         Ok(format!(
-            "{from}〜{to}小節のテンポを {from_bpm:.0} から {to_bpm:.0} BPM へ{}",
-            if to_bpm < from_bpm { "落としました（rit.）" } else { "上げました（accel.）" }
+            "{} the tempo over {} from {from_bpm:.0} to {to_bpm:.0} BPM ({})",
+            if to_bpm < from_bpm { "Slowed" } else { "Sped up" },
+            bar_span(from, to),
+            if to_bpm < from_bpm { "rit." } else { "accel." }
         ))
     }
 }
@@ -763,16 +791,14 @@ impl Score {
             self.time_signatures.retain(|t| t.tick != 0);
             self.time_signatures.insert(0, TimeSigChange { tick: 0, numerator, denominator });
             self.time_signatures.retain(|t| t.tick == 0 || t.numerator != numerator || t.denominator != denominator);
-            return Ok("弱起をやめ、1小節目から通常の小節にしました".into());
+            return Ok("Removed the pickup; bar 1 is a full bar again".into());
         }
         if beats >= f64::from(numerator) {
-            return Err(format!(
-                "弱起は1小節（{numerator}拍）より短くしてください。"
-            ));
+            return Err(format!("A pickup must be shorter than one bar ({numerator} beats)."));
         }
         let pickup = (beats * f64::from(beat_ticks)).round() as u32;
         if pickup == 0 {
-            return Err("弱起の長さが短すぎます。".into());
+            return Err("The pickup is too short.".into());
         }
 
         self.time_signatures.retain(|t| t.tick != 0 && t.tick != pickup);
@@ -785,7 +811,8 @@ impl Score {
         self.time_signatures.push(TimeSigChange { tick: pickup, numerator, denominator });
         self.time_signatures.sort_by_key(|t| t.tick);
         Ok(format!(
-            "1小節目を{beats}拍の弱起にしました（2小節目から{numerator}/{denominator}）"
+            "Made bar 1 a pickup of {beats} {} ({numerator}/{denominator} from bar 2)",
+            if beats == 1.0 { "beat" } else { "beats" }
         ))
     }
 
