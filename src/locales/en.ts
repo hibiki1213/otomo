@@ -12,6 +12,13 @@ export const en = {
     system: "System",
   },
 
+  theme: {
+    label: "Appearance",
+    system: "Auto",
+    light: "Light",
+    dark: "Dark",
+  },
+
   common: {
     apply: "Apply",
     discard: "Discard",

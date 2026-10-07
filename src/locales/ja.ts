@@ -7,6 +7,13 @@ export const ja: Messages = {
     system: "システム設定",
   },
 
+  theme: {
+    label: "外観",
+    system: "自動",
+    light: "ライト",
+    dark: "ダーク",
+  },
+
   common: {
     apply: "適用",
     discard: "破棄",

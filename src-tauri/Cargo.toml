@@ -7,10 +7,10 @@ exclude = ["crates/rustysynth"]
 [package]
 name = "otomo"
 version = "0.1.0"
-description = "MIDI player"
+description = "Desktop music editor where Claude composes alongside you"
 authors = ["Hibiki Kawabe"]
 license = "MIT"
-repository = ""
+repository = "https://github.com/hibiki1213/otomo"
 edition = "2021"
 rust-version = "1.77.2"
 

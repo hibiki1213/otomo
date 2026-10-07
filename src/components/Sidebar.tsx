@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import ClaudeConnection from "@/components/ClaudeConnection";
 import LanguageSelect from "@/components/LanguageSelect";
+import ThemeSelect from "@/components/ThemeSelect";
 import { useI18n } from "@/lib/i18n";
 import type { Messages } from "@/locales/en";
 import type { SongRecord } from "@/lib/songsApi";
@@ -197,7 +198,10 @@ export default function Sidebar({
       </nav>
 
       <ClaudeConnection />
-      <LanguageSelect />
+      <div className="sidebar-prefs">
+        <LanguageSelect />
+        <ThemeSelect />
+      </div>
 
       {menu && (
         <div ref={menuRef} className="context-menu" style={{ left: menu.x, top: menu.y }}>
