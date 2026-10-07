@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ChatPanel from "@/components/ChatPanel";
 import ExportDialog, { type ExportTarget } from "@/components/ExportDialog";
+import Home from "@/components/Home";
+import PanelToggle from "@/components/PanelToggle";
 import PendingBar from "@/components/PendingBar";
 import Player from "@/components/Player";
 import Sidebar from "@/components/Sidebar";
@@ -22,6 +24,32 @@ export default function App() {
   const [chatWidth, setChatWidth] = useState(() => Number(readPref("otomo.chat.width", "360")) || 360);
 
   useEffect(() => writePref("otomo.chat.open", chatOpen ? "1" : "0"), [chatOpen]);
+  const [sidebarOpen, setSidebarOpen] = useState(() => readPref("otomo.sidebar.open", "1") === "1");
+  const [sidebarWidth, setSidebarWidth] = useState(() => Number(readPref("otomo.sidebar.width", "248")) || 248);
+  useEffect(() => writePref("otomo.sidebar.open", sidebarOpen ? "1" : "0"), [sidebarOpen]);
+  useEffect(() => writePref("otomo.sidebar.width", String(sidebarWidth)), [sidebarWidth]);
+  // The traffic lights hide in full screen (and don't exist in a browser),
+  // so the title bar stops leaving room for them.
+  const [trafficLights, setTrafficLights] = useState(libraryAvailable);
+  useEffect(() => {
+    if (!libraryAvailable()) return;
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    void (async () => {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const win = getCurrentWindow();
+      const check = async () => setTrafficLights(!(await win.isFullscreen()));
+      await check();
+      // Entering and leaving full screen both resize the window.
+      const un = await win.onResized(() => void check());
+      if (cancelled) un();
+      else stop = un;
+    })();
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, []);
   const [exporting, setExporting] = useState<ExportTarget | null>(null);
   // What ⌘V pastes: a piano-roll range, from this song or any other.
   const [clip, setClip] = useState<RollClip | null>(null);
@@ -92,6 +120,46 @@ export default function App() {
     setChatOpen(true);
   }, []);
   useEffect(() => writePref("otomo.chat.width", String(chatWidth)), [chatWidth]);
+
+  // The launch screen: until the first message, with no song open, the chat
+  // sits in the middle of the window. Sending moves it to its panel.
+  const [asked, setAsked] = useState(false);
+  const [homeSlot, setHomeSlot] = useState<HTMLDivElement | null>(null);
+  const [claudeBusy, setClaudeBusy] = useState(false);
+  const home = libraryAvailable() && !library.source && !asked;
+  // Songs that existed when the launch screen sent its message; one that
+  // appears after it is what Claude made, and opens when Claude is done.
+  const knownSongs = useRef<Set<number> | null>(null);
+  const sawBusy = useRef(false);
+  const onHomeSend = useCallback(() => {
+    knownSongs.current = new Set(library.songs.map((s) => s.id));
+    sawBusy.current = false;
+    setAsked(true);
+    setChatOpen(true);
+  }, [library.songs]);
+  const { songs, pending, previewPending, play } = library;
+  useEffect(() => {
+    const known = knownSongs.current;
+    if (!known) return;
+    if (library.source) {
+      knownSongs.current = null;
+      return;
+    }
+    if (claudeBusy) {
+      sawBusy.current = true;
+      return;
+    }
+    if (!sawBusy.current) return;
+    knownSongs.current = null;
+    // An edit waiting on a new song is the music itself; else the new song.
+    const staged = pending.find((p) => !known.has(p.songId));
+    if (staged) {
+      void previewPending(staged.songId);
+      return;
+    }
+    const made = songs.filter((s) => !known.has(s.id)).sort((a, b) => b.addedAt - a.addedAt)[0];
+    if (made) void play(made);
+  }, [claudeBusy, songs, pending, library.source, previewPending, play]);
 
   // Files dropped on the window arrive from the OS with real paths, so they
   // can be imported the same way the open panel's are.
@@ -175,40 +243,73 @@ export default function App() {
         e.preventDefault();
         setChatOpen((v) => !v);
       }
+      // ⌃⌘S, the Mac's own "Show Sidebar".
+      if (e.metaKey && e.ctrlKey && e.code === "KeyS") {
+        e.preventDefault();
+        setSidebarOpen((v) => !v);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [openFiles, exportSong, source]);
 
   return (
-    <div className={`shell${dropping ? " dropping" : ""}`}>
-      <Sidebar
-        library={library}
-        playing={state === "playing"}
-        onExport={exportSong}
-        onHistory={(id, back) => void history(id, back)}
+    <div
+      className={`shell${dropping ? " dropping" : ""}${sidebarOpen ? "" : " sidebar-closed"}${
+        chatOpen && libraryAvailable() && !home ? "" : " chat-closed"
+      }${trafficLights ? "" : " no-traffic-lights"}`}
+    >
+      {sidebarOpen && (
+        <Sidebar
+          library={library}
+          playing={state === "playing"}
+          width={sidebarWidth}
+          onResize={setSidebarWidth}
+          onExport={exportSong}
+          onHistory={(id, back) => void history(id, back)}
+        />
+      )}
+      <PanelToggle
+        side="left"
+        open={sidebarOpen}
+        onToggle={() => setSidebarOpen((v) => !v)}
+        title={sidebarOpen ? t.sidebar.hide : t.sidebar.show}
+        label={t.sidebar.toggleLabel}
       />
       <main className="content">
         {/* With a song open the toolbar is the drag region; without one,
             this strip keeps the window movable from the content side. */}
         {!library.source && <div className="content-drag" data-tauri-drag-region />}
-        {library.error && (
-          <div className="error" onClick={library.dismissError}>
-            {library.error}
-          </div>
-        )}
-        {library.pending.map((edit) => (
-          <PendingBar
-            key={edit.songId}
-            edit={edit}
-            library={library}
-            previewing={
-              library.source?.staged === true && library.source.id === edit.songId
-            }
-          />
-        ))}
         <Player
           source={library.source}
+          empty={
+            libraryAvailable() ? (
+              <Home
+                mode={home ? "ask" : claudeBusy ? "working" : "idle"}
+                slotRef={setHomeSlot}
+                songs={library.songs}
+                onOpenSong={(song) => void library.play(song)}
+                onOpenFiles={() => void openFiles()}
+              />
+            ) : undefined
+          }
+          notices={
+            <>
+              {library.error && (
+                <div className="error" onClick={library.dismissError}>
+                  {library.error}
+                </div>
+              )}
+              {library.pending.map((edit) => (
+                <PendingBar
+                  key={edit.songId}
+                  edit={edit}
+                  library={library}
+                  previewing={library.source?.staged === true && library.source.id === edit.songId}
+                />
+              ))}
+            </>
+          }
           onLoaded={library.onLoaded}
           onStateChange={setState}
           stopRequest={stopRequest}
@@ -231,6 +332,10 @@ export default function App() {
           onResize={setChatWidth}
           attachments={attachments}
           onAttachmentsChange={setAttachments}
+          home={home}
+          homeSlot={homeSlot}
+          onHomeSend={onHomeSend}
+          onRunningChange={setClaudeBusy}
         />
       )}
       {exporting && <ExportDialog target={exporting} onClose={() => setExporting(null)} />}

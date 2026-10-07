@@ -186,7 +186,7 @@ export default function ControllerLane({
 
     const bg = dark ? "#0d0e11" : "#eef0f3";
     const grid = dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.07)";
-    const label = dark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.5)";
+    const label = dark ? "rgba(255,255,255,0.45)" : "#737373";
     const mutedColor = dark ? "#3a3c40" : "#bdc0c5";
     const pad = 6;
     const yOf = (v: number) => pad + (1 - (v - range.lo) / (range.hi - range.lo)) * (h - pad * 2);

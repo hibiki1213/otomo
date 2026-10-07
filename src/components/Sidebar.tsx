@@ -36,12 +36,16 @@ interface MenuState {
 export default function Sidebar({
   library,
   playing,
+  width,
+  onResize,
   onExport,
   onHistory,
 }: {
   library: SongLibrary;
   /** Whether the current song is sounding, for the row indicator. */
   playing: boolean;
+  width: number;
+  onResize: (width: number) => void;
   onExport: (song: SongRecord) => void;
   /** Undo (back) or redo a song's last change. */
   onHistory: (songId: number, back: boolean) => void;
@@ -77,11 +81,25 @@ export default function Sidebar({
   const favorites = songs.filter((s) => s.favorite);
   const rest = songs.filter((s) => !s.favorite);
 
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const move = (ev: PointerEvent) => onResize(Math.min(400, Math.max(200, ev.clientX)));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.classList.remove("resizing");
+    };
+    document.body.classList.add("resizing");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const row = (song: SongRecord) => (
-    <li key={song.id}>
+    <li key={song.id} className="song-item">
       <button
         className={`song-row${current?.id === song.id ? " current" : ""}`}
         onClick={() => void library.play(song)}
+        onDoubleClick={() => setRenaming(song.id)}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu({ song, x: e.clientX, y: e.clientY });
@@ -114,11 +132,29 @@ export default function Sidebar({
         </span>
         {song.favorite && <span className="song-star">★</span>}
       </button>
+      {/* The context menu, for those who don't think to right-click. */}
+      <button
+        className={`song-more${current?.id === song.id ? " current" : ""}${menu?.song.id === song.id ? " open" : ""}`}
+        title={t.sidebar.more}
+        aria-label={t.sidebar.more}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setMenu({ song, x: r.left, y: r.bottom + 4 });
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <circle cx="6" cy="12" r="1.6" />
+          <circle cx="12" cy="12" r="1.6" />
+          <circle cx="18" cy="12" r="1.6" />
+        </svg>
+      </button>
     </li>
   );
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ width }}>
+      <div className="sidebar-resize" onPointerDown={startResize} />
+      {/* The title bar: traffic lights, the toggle over it, and room to drag. */}
       <div className="sidebar-drag" data-tauri-drag-region />
 
       <div className="sidebar-search">
@@ -131,9 +167,12 @@ export default function Sidebar({
         <button
           className="icon-btn"
           title={t.sidebar.openFiles}
+          aria-label={t.sidebar.openFiles}
           onClick={() => void library.openFiles()}
         >
-          +
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" aria-hidden>
+            <path d="M12 5.5v13M5.5 12h13" />
+          </svg>
         </button>
       </div>
 

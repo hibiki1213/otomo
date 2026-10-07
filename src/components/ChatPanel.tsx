@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ChatMarkdown from "@/components/ChatMarkdown";
+import PanelToggle from "@/components/PanelToggle";
 import {
   EFFORTS,
   chatStatus,
@@ -179,8 +181,22 @@ export default function ChatPanel({
   onResize,
   attachments,
   onAttachmentsChange,
+  home,
+  homeSlot,
+  onHomeSend,
+  onRunningChange,
 }: {
   library: SongLibrary;
+  /**
+   * The launch screen is up: the composer moves to its middle (`homeSlot`)
+   * and the panel steps aside until the first message is sent.
+   */
+  home: boolean;
+  homeSlot: HTMLElement | null;
+  /** A message went from the launch screen; the app goes to its usual layout. */
+  onHomeSend: () => void;
+  /** Whether Claude is working on anything, for the launch screen. */
+  onRunningChange: (running: boolean) => void;
   open: boolean;
   onToggle: () => void;
   width: number;
@@ -342,9 +358,13 @@ export default function ChatPanel({
   const busy = activeId != null && running.has(activeId);
   const song = library.current;
 
-  const send = async (text = draft) => {
+  useEffect(() => onRunningChange(running.size > 0), [running, onRunningChange]);
+
+  // A message from the launch screen always starts a new conversation.
+  const send = async (text = draft, fresh = home) => {
     const body = text.trim();
-    if ((!body && attachments.length === 0) || busy) return;
+    if ((!body && attachments.length === 0) || (busy && !fresh)) return;
+    if (fresh) onHomeSend();
     setError(null);
     setDraft("");
     const attached = attachments;
@@ -354,7 +374,7 @@ export default function ChatPanel({
     }));
     onAttachmentsChange([]);
     stick.current = true;
-    const convId = activeId;
+    const convId = fresh ? null : activeId;
     const optimistic: Message = {
       ...emptyAssistant(),
       role: "user",
@@ -363,7 +383,7 @@ export default function ChatPanel({
         ...(body ? [{ type: "text" as const, text: body }] : []),
       ],
     };
-    setMessages((prev) => [...prev, optimistic]);
+    setMessages((prev) => (fresh ? [optimistic] : [...prev, optimistic]));
     try {
       const conv = await sendChat({
         convId,
@@ -432,322 +452,356 @@ export default function ChatPanel({
     window.addEventListener("pointerup", up);
   };
 
-  if (!open) {
-    return (
-      <aside className="chat-rail">
-        <div className="chat-rail-drag" data-tauri-drag-region />
-        <button
-          className={`chat-rail-btn${running.size > 0 ? " busy" : ""}`}
-          onClick={onToggle}
-          title={t.chat.open}
-          aria-label={t.chat.openLabel}
+  // One toggle for both states, fixed in the title bar's top-right corner.
+  const toggle = (
+    <PanelToggle
+      side="right"
+      open={open}
+      onToggle={onToggle}
+      title={open ? t.chat.closeTitle : t.chat.open}
+      label={t.chat.openLabel}
+      busy={running.size > 0}
+    />
+  );
+
+  // The message box: at the foot of the panel, or in the launch screen.
+  const composer = (where: "panel" | "home") => (
+    <div className={`chat-compose${where === "home" ? " is-home" : ""}`}>
+      {error && (
+        <p className="chat-error" onClick={() => setError(null)}>
+          {error}
+        </p>
+      )}
+      {attachments.length > 0 && (
+        <div className="chat-attachments">
+          {attachments.map((a, i) => (
+            <AttachmentChip
+              key={a.id}
+              selection={a}
+              number={i + 1}
+              otherSong={a.songId !== (song?.id ?? null)}
+              onRemove={() => onAttachmentsChange(attachments.filter((x) => x.id !== a.id))}
+              onToggleTrack={(track) =>
+                onAttachmentsChange(
+                  attachments.map((x) =>
+                    x.id !== a.id
+                      ? x
+                      : {
+                          ...x,
+                          excluded: x.excluded.includes(track)
+                            ? x.excluded.filter((t) => t !== track)
+                            : [...x.excluded, track],
+                        }
+                  )
+                )
+              }
+            />
+          ))}
+        </div>
+      )}
+      <textarea
+        ref={inputRef}
+        className="chat-input"
+        rows={where === "home" ? 3 : 2}
+        autoFocus={where === "home"}
+        value={draft}
+        disabled={!!status?.blocked}
+        placeholder={
+          where === "home"
+            ? t.home.placeholder
+            : attachments.length > 0
+            ? t.chat.placeholderSelection
+            : song
+              ? t.chat.placeholderSong(song.title)
+              : t.chat.placeholderNew
+        }
+        onChange={(e) => setDraft(e.target.value)}
+        onInput={(e) => {
+          const el = e.currentTarget;
+          el.style.height = "auto";
+          el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+        }}
+        onKeyDown={(e) => {
+          // Enter while converting kana is the IME's, not ours.
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+            e.preventDefault();
+            void send();
+          }
+        }}
+      />
+      <div className="chat-compose-foot">
+        <span className="chat-hint">{t.chat.sendHint}</span>
+        <label className="chat-model" title={t.chat.modelTitle}>
+          <span className="chat-model-badge">
+            {model == null
+              ? t.chat.auto
+              : (MODELS.find((m) => m.value === model)?.label ?? modelName(model))}
+          </span>
+          <select
+            value={model ?? ""}
+            onChange={(e) => void chooseModel(e.target.value || null)}
+            aria-label={t.chat.model}
+          >
+            {MODELS.map((m) => (
+              <option key={m.value ?? ""} value={m.value ?? ""}>
+                {m.label ?? t.chat.auto}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label
+          className={`chat-model${effortOn ? "" : " is-off"}`}
+          title={
+            effortOn ? t.chat.effortTitle : t.chat.effortUnavailable
+          }
         >
-          <BubbleIcon />
-          {running.size > 0 && <span className="chat-rail-dot" />}
-        </button>
-      </aside>
+          <span className="chat-model-badge">
+            <span className="chat-model-key">effort</span>
+            {effortOn ? (effort ? EFFORT_LABEL[effort] : t.chat.auto) : "—"}
+          </span>
+          <select
+            value={effort ?? ""}
+            disabled={!effortOn}
+            onChange={(e) => void chooseEffort(EFFORTS.find((l) => l === e.target.value) ?? null)}
+            aria-label="effort"
+          >
+            <option value="">{t.chat.auto}</option>
+            {EFFORTS.map((l) => (
+              <option key={l} value={l}>
+                {EFFORT_LABEL[l]}
+              </option>
+            ))}
+          </select>
+        </label>
+        {busy ? (
+          <button
+            className="chat-btn"
+            onClick={() => activeId != null && void stopChat(activeId)}
+          >
+            {t.chat.stop}
+          </button>
+        ) : (
+          <button
+            className="chat-btn is-primary"
+            disabled={(!draft.trim() && attachments.length === 0) || !!status?.blocked}
+            onClick={() => void send()}
+          >
+            {t.chat.send}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  if (home) {
+    if (!homeSlot) return null;
+    return createPortal(
+      <div className="home-compose">
+        {status?.blocked ? (
+          <div className="home-blocked">
+            <p className="home-blocked-title">{t.chat.unavailable}</p>
+            <p className="home-blocked-desc">{status.blocked}</p>
+          </div>
+        ) : (
+          <>
+            {composer("home")}
+            <div className="home-starters">
+              {t.home.starters.map((text) => (
+                <button key={text} className="home-starter" onClick={() => void send(text, true)}>
+                  {text}
+                </button>
+              ))}
+              <button className="home-starter" onClick={() => void library.openFiles()}>
+                {t.home.openMidi}
+              </button>
+            </div>
+          </>
+        )}
+      </div>,
+      homeSlot
     );
   }
+
+  if (!open) return toggle;
 
   const shown = activeId != null && live[activeId] ? [...messages, live[activeId]] : messages;
 
   return (
-    <aside className="chat" style={{ width }}>
-      <div className="chat-resize" onPointerDown={startResize} />
+    <>
+      {toggle}
+      <aside className="chat" style={{ width }}>
+        <div className="chat-resize" onPointerDown={startResize} />
 
-      <header className="chat-head" data-tauri-drag-region>
-        <div className="chat-head-text" data-tauri-drag-region>
-          <span className="chat-head-title" data-tauri-drag-region>
-            {historyOpen ? t.chat.history : "Claude"}
-          </span>
-          {!historyOpen && active && (
-            <span className="chat-head-sub" data-tauri-drag-region>
-              {active.title}
+        <header className="chat-head" data-tauri-drag-region>
+          <div className="chat-head-text" data-tauri-drag-region>
+            <span className="chat-head-title" data-tauri-drag-region>
+              {historyOpen ? t.chat.history : "Claude"}
             </span>
-          )}
-        </div>
-        <button
-          className={`chat-icon${historyOpen ? " on" : ""}`}
-          title={t.chat.history}
-          aria-label={t.chat.history}
-          aria-pressed={historyOpen}
-          onClick={() => {
-            setHistoryOpen((v) => !v);
-            setConfirmDelete(null);
-          }}
-        >
-          <HistoryIcon />
-        </button>
-        <button
-          className="chat-icon"
-          title={t.chat.newChat}
-          aria-label={t.chat.newChat}
-          onClick={() => {
-            setActiveId(null);
-            setHistoryOpen(false);
-            setError(null);
-            inputRef.current?.focus();
-          }}
-        >
-          <PlusIcon />
-        </button>
-        <button className="chat-icon" title={t.chat.closeTitle} aria-label={t.common.close} onClick={onToggle}>
-          <PanelIcon />
-        </button>
-      </header>
+            {!historyOpen && active && (
+              <span className="chat-head-sub" data-tauri-drag-region>
+                {active.title}
+              </span>
+            )}
+          </div>
+          <button
+            className={`chat-icon${historyOpen ? " on" : ""}`}
+            title={t.chat.history}
+            aria-label={t.chat.history}
+            aria-pressed={historyOpen}
+            onClick={() => {
+              setHistoryOpen((v) => !v);
+              setConfirmDelete(null);
+            }}
+          >
+            <HistoryIcon />
+          </button>
+          <button
+            className="chat-icon"
+            title={t.chat.newChat}
+            aria-label={t.chat.newChat}
+            onClick={() => {
+              setActiveId(null);
+              setHistoryOpen(false);
+              setError(null);
+              inputRef.current?.focus();
+            }}
+          >
+            <PlusIcon />
+          </button>
+        </header>
 
-      {historyOpen ? (
-        <div className="chat-history">
-          {convs.length === 0 && <p className="chat-hint chat-history-empty">{t.chat.noHistory}</p>}
-          {convs.map((c) => (
-            <div
-              key={c.id}
-              className={`chat-history-item${c.id === activeId ? " is-active" : ""}`}
-              onClick={() => {
-                setActiveId(c.id);
-                setHistoryOpen(false);
-              }}
-            >
-              <div className="chat-history-main">
-                <div className="chat-history-title">{c.title}</div>
-                <div className="chat-history-meta">
-                  {running.has(c.id) ? t.chat.replying : relTime(c.updatedAt, t)}
+        {historyOpen ? (
+          <div className="chat-history">
+            {convs.length === 0 && <p className="chat-hint chat-history-empty">{t.chat.noHistory}</p>}
+            {convs.map((c) => (
+              <div
+                key={c.id}
+                className={`chat-history-item${c.id === activeId ? " is-active" : ""}`}
+                onClick={() => {
+                  setActiveId(c.id);
+                  setHistoryOpen(false);
+                }}
+              >
+                <div className="chat-history-main">
+                  <div className="chat-history-title">{c.title}</div>
+                  <div className="chat-history-meta">
+                    {running.has(c.id) ? t.chat.replying : relTime(c.updatedAt, t)}
+                  </div>
                 </div>
-              </div>
-              {confirmDelete === c.id ? (
-                <div className="chat-history-confirm" onClick={(e) => e.stopPropagation()}>
+                {confirmDelete === c.id ? (
+                  <div className="chat-history-confirm" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className="chat-link is-danger"
+                      onClick={async () => {
+                        await deleteConversation(c.id);
+                        if (c.id === activeId) setActiveId(null);
+                        setConfirmDelete(null);
+                        void reloadConvs();
+                      }}
+                    >
+                      {t.chat.delete}
+                    </button>
+                    <button className="chat-link" onClick={() => setConfirmDelete(null)}>
+                      {t.chat.cancel}
+                    </button>
+                  </div>
+                ) : (
                   <button
-                    className="chat-link is-danger"
-                    onClick={async () => {
-                      await deleteConversation(c.id);
-                      if (c.id === activeId) setActiveId(null);
-                      setConfirmDelete(null);
-                      void reloadConvs();
+                    className="chat-history-x"
+                    title={t.chat.deleteConversation}
+                    aria-label={t.chat.deleteConversation}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDelete(c.id);
                     }}
                   >
-                    {t.chat.delete}
+                    <TrashIcon />
                   </button>
-                  <button className="chat-link" onClick={() => setConfirmDelete(null)}>
-                    {t.chat.cancel}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  className="chat-history-x"
-                  title={t.chat.deleteConversation}
-                  aria-label={t.chat.deleteConversation}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirmDelete(c.id);
-                  }}
-                >
-                  <TrashIcon />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div
-          className="chat-body"
-          ref={scrollRef}
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-          }}
-        >
-          {status?.blocked ? (
-            <div className="chat-empty">
-              <p className="chat-empty-title">{t.chat.unavailable}</p>
-              <p className="chat-empty-desc">{status.blocked}</p>
-            </div>
-          ) : shown.length === 0 ? (
-            <div className="chat-empty">
-              <p className="chat-empty-title">{t.chat.emptyTitle}</p>
-              <p className="chat-empty-desc">{t.chat.emptyDesc}</p>
-              <div className="chat-starters">
-                {t.chat.suggestions.map((s) => (
-                  <button
-                    key={s.text}
-                    className="chat-starter"
-                    onClick={() => void send(s.text)}
-                    disabled={!song && s.needsSong}
-                  >
-                    {s.text}
-                  </button>
-                ))}
+                )}
               </div>
-            </div>
-          ) : (
-            <div className="chat-log">
-              {shown.map((m, i) => (
-                <MessageView
-                  key={m.id > 0 ? m.id : `live-${i}`}
-                  message={m}
-                  streaming={m.id === -1 && m.role === "assistant"}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {library.pending.length > 0 && !historyOpen && (
-        <div className="chat-pending">
-          {library.pending.map((edit) => {
-            const previewing =
-              library.source?.staged === true && library.source.id === edit.songId;
-            return (
-              <div key={edit.songId} className="chat-pending-row">
-                <div className="chat-pending-text">
-                  <span className="chat-pending-title">{t.chat.pending(edit.changes.length)}</span>
-                  <span className="chat-pending-song">{edit.title}</span>
-                </div>
-                <button
-                  className="chat-link"
-                  disabled={previewing}
-                  onClick={() => void library.previewPending(edit.songId)}
-                >
-                  {previewing ? t.common.previewing : t.common.preview}
-                </button>
-                <button className="chat-link" onClick={() => void library.discardEdit(edit.songId)}>
-                  {t.common.discard}
-                </button>
-                <button
-                  className="chat-btn is-primary"
-                  onClick={() => void library.applyEdit(edit.songId)}
-                >
-                  {t.common.apply}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="chat-compose">
-        {error && (
-          <p className="chat-error" onClick={() => setError(null)}>
-            {error}
-          </p>
-        )}
-        {attachments.length > 0 && (
-          <div className="chat-attachments">
-            {attachments.map((a, i) => (
-              <AttachmentChip
-                key={a.id}
-                selection={a}
-                number={i + 1}
-                otherSong={a.songId !== (song?.id ?? null)}
-                onRemove={() => onAttachmentsChange(attachments.filter((x) => x.id !== a.id))}
-                onToggleTrack={(track) =>
-                  onAttachmentsChange(
-                    attachments.map((x) =>
-                      x.id !== a.id
-                        ? x
-                        : {
-                            ...x,
-                            excluded: x.excluded.includes(track)
-                              ? x.excluded.filter((t) => t !== track)
-                              : [...x.excluded, track],
-                          }
-                    )
-                  )
-                }
-              />
             ))}
           </div>
-        )}
-        <textarea
-          ref={inputRef}
-          className="chat-input"
-          rows={2}
-          value={draft}
-          disabled={!!status?.blocked}
-          placeholder={
-            attachments.length > 0
-              ? t.chat.placeholderSelection
-              : song
-                ? t.chat.placeholderSong(song.title)
-                : t.chat.placeholderNew
-          }
-          onChange={(e) => setDraft(e.target.value)}
-          onInput={(e) => {
-            const el = e.currentTarget;
-            el.style.height = "auto";
-            el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-          }}
-          onKeyDown={(e) => {
-            // Enter while converting kana is the IME's, not ours.
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <div className="chat-compose-foot">
-          <span className="chat-hint">{t.chat.sendHint}</span>
-          <label className="chat-model" title={t.chat.modelTitle}>
-            <span className="chat-model-badge">
-              {model == null
-                ? t.chat.auto
-                : (MODELS.find((m) => m.value === model)?.label ?? modelName(model))}
-            </span>
-            <select
-              value={model ?? ""}
-              onChange={(e) => void chooseModel(e.target.value || null)}
-              aria-label={t.chat.model}
-            >
-              {MODELS.map((m) => (
-                <option key={m.value ?? ""} value={m.value ?? ""}>
-                  {m.label ?? t.chat.auto}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label
-            className={`chat-model${effortOn ? "" : " is-off"}`}
-            title={
-              effortOn ? t.chat.effortTitle : t.chat.effortUnavailable
-            }
+        ) : (
+          <div
+            className="chat-body"
+            ref={scrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            }}
           >
-            <span className="chat-model-badge">
-              <span className="chat-model-key">effort</span>
-              {effortOn ? (effort ? EFFORT_LABEL[effort] : t.chat.auto) : "—"}
-            </span>
-            <select
-              value={effort ?? ""}
-              disabled={!effortOn}
-              onChange={(e) => void chooseEffort(EFFORTS.find((l) => l === e.target.value) ?? null)}
-              aria-label="effort"
-            >
-              <option value="">{t.chat.auto}</option>
-              {EFFORTS.map((l) => (
-                <option key={l} value={l}>
-                  {EFFORT_LABEL[l]}
-                </option>
-              ))}
-            </select>
-          </label>
-          {busy ? (
-            <button
-              className="chat-btn"
-              onClick={() => activeId != null && void stopChat(activeId)}
-            >
-              {t.chat.stop}
-            </button>
-          ) : (
-            <button
-              className="chat-btn is-primary"
-              disabled={(!draft.trim() && attachments.length === 0) || !!status?.blocked}
-              onClick={() => void send()}
-            >
-              {t.chat.send}
-            </button>
-          )}
-        </div>
-      </div>
-    </aside>
+            {status?.blocked ? (
+              <div className="chat-empty">
+                <p className="chat-empty-title">{t.chat.unavailable}</p>
+                <p className="chat-empty-desc">{status.blocked}</p>
+              </div>
+            ) : shown.length === 0 ? (
+              <div className="chat-empty">
+                <p className="chat-empty-title">{t.chat.emptyTitle}</p>
+                <p className="chat-empty-desc">{t.chat.emptyDesc}</p>
+                <div className="chat-starters">
+                  {t.chat.suggestions.map((s) => (
+                    <button
+                      key={s.text}
+                      className="chat-starter"
+                      onClick={() => void send(s.text)}
+                      disabled={!song && s.needsSong}
+                    >
+                      {s.text}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="chat-log">
+                {shown.map((m, i) => (
+                  <MessageView
+                    key={m.id > 0 ? m.id : `live-${i}`}
+                    message={m}
+                    streaming={m.id === -1 && m.role === "assistant"}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {library.pending.length > 0 && !historyOpen && (
+          <div className="chat-pending">
+            {library.pending.map((edit) => {
+              const previewing =
+                library.source?.staged === true && library.source.id === edit.songId;
+              return (
+                <div key={edit.songId} className="chat-pending-row">
+                  <div className="chat-pending-text">
+                    <span className="chat-pending-title">{t.chat.pending(edit.changes.length)}</span>
+                    <span className="chat-pending-song">{edit.title}</span>
+                  </div>
+                  <button
+                    className="chat-link"
+                    disabled={previewing}
+                    onClick={() => void library.previewPending(edit.songId)}
+                  >
+                    {previewing ? t.common.previewing : t.common.preview}
+                  </button>
+                  <button className="chat-link" onClick={() => void library.discardEdit(edit.songId)}>
+                    {t.common.discard}
+                  </button>
+                  <button
+                    className="chat-btn is-primary"
+                    onClick={() => void library.applyEdit(edit.songId)}
+                  >
+                    {t.common.apply}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {composer("panel")}
+      </aside>
+    </>
   );
 }
 
@@ -940,14 +994,6 @@ const stroke = {
   strokeLinejoin: "round",
 } as const;
 
-function BubbleIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" {...stroke} aria-hidden>
-      <path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z" />
-    </svg>
-  );
-}
-
 function HistoryIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" {...stroke} aria-hidden>
@@ -961,15 +1007,6 @@ function PlusIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" {...stroke} aria-hidden>
       <path d="M12 5.5v13M5.5 12h13" />
-    </svg>
-  );
-}
-
-function PanelIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...stroke} aria-hidden>
-      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
-      <path d="M14.5 4.5v15" />
     </svg>
   );
 }

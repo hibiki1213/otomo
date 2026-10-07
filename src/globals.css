@@ -10,14 +10,20 @@
   --text: #e8eaed;
   --text-dim: #a4a8af;
   --text-faint: #6d7077;
-  --accent: #0a84ff;
-  --accent-press: #0066cc;
+  --accent: #0076ff;
+  --accent-press: #0062d6;
   --accent-ink: #ffffff;
+  /* The pale blue. On dark it is the ink of things switched on (on a tint of
+     the accent); on light it is their background, with the deeper blue on it. */
+  --accent-soft: #c3daff;
+  --accent-tint: color-mix(in srgb, var(--accent) 22%, transparent);
+  --accent-tint-ink: var(--accent-soft);
+  --accent-tint-hover: color-mix(in srgb, var(--accent) 30%, transparent);
   /* Let the desktop through behind the sidebar (macOS vibrancy). */
   --sidebar: rgba(28, 30, 34, 0.5);
   --control: rgba(255, 255, 255, 0.07);
   --menu: rgba(38, 40, 45, 0.82);
-  --accent-blue: #4da3ff;
+  --accent-blue: var(--accent-soft);
   --danger: #ff5d5d;
   --playhead: #f5a623;
   --grid: rgba(255, 255, 255, 0.04);
@@ -25,6 +31,12 @@
   --roll-bg: #0a0b0d;
   --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
     0 18px 60px rgba(0, 0, 0, 0.5);
+  /* One title bar across all three columns, so their hairlines line up and
+     the panel toggles stay put. Matches tauri.conf.json's trafficLightPosition. */
+  --titlebar-h: 52px;
+  /* Segmented controls: a sunken track, a raised thumb for the choice. */
+  --seg-track: rgba(0, 0, 0, 0.25);
+  --seg-thumb: rgba(255, 255, 255, 0.12);
   --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", "SF Mono",
     Menlo, Consolas, monospace;
 }
@@ -34,22 +46,29 @@
     --bg: #ebecef;
     --bg-2: #f3f4f6;
     --panel: #ffffff;
-    --panel-2: #f6f7f9;
-    --panel-3: #eceef1;
-    --hover: rgba(0, 0, 0, 0.04);
-    --border: rgba(0, 0, 0, 0.08);
-    --border-strong: rgba(0, 0, 0, 0.14);
-    --text: #14161a;
-    --text-dim: #4d5159;
-    --text-faint: #8a8e95;
+    --panel-2: #fafafa;
+    /* Buttons and fields: one flat grey, and no outline (see the end). */
+    --panel-3: #f5f5f5;
+    --hover: rgba(0, 0, 0, 0.05);
+    --border: rgba(0, 0, 0, 0.06);
+    --border-strong: rgba(0, 0, 0, 0.08);
+    /* Grey, not black: the text never shouts. */
+    --text: #737373;
+    --text-dim: #737373;
+    --text-faint: #a3a3a3;
     --grid: rgba(0, 0, 0, 0.05);
     --grid-strong: rgba(0, 0, 0, 0.1);
     --roll-bg: #f4f5f7;
-    --accent: #007aff;
-    --accent-press: #0060df;
+    --accent-press: #0062d6;
+    --accent-tint: var(--accent-soft);
+    --accent-tint-ink: var(--accent-press);
+    --accent-tint-hover: color-mix(in srgb, var(--accent-soft) 80%, var(--accent));
+    --accent-blue: var(--accent-press);
     --sidebar: rgba(246, 247, 249, 0.55);
-    --control: rgba(255, 255, 255, 0.8);
+    --control: #f5f5f5;
     --menu: rgba(250, 250, 252, 0.85);
+    --seg-track: #f5f5f5;
+    --seg-thumb: #ffffff;
     --shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset,
       0 8px 28px rgba(0, 0, 0, 0.08);
   }
@@ -98,12 +117,12 @@ button:focus-visible,
    desktop through and only the content pane is opaque. */
 .shell {
   height: 100%;
-  display: grid;
-  /* The third column is Claude: a panel, or a thin rail when it is closed. */
-  grid-template-columns: 248px minmax(0, 1fr) auto;
+  display: flex;
 }
 
 .sidebar {
+  position: relative;
+  flex: none;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -111,10 +130,70 @@ button:focus-visible,
   border-right: 1px solid var(--border);
 }
 
-/* Room for the traffic lights; also drags the window. */
+/* Room for the traffic lights and the toggle; also drags the window. */
 .sidebar-drag {
-  height: 38px;
+  height: var(--titlebar-h);
   flex: none;
+}
+
+.sidebar-resize {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.sidebar-resize:hover {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* ---------- Panel toggles ----------
+   Fixed in the title bar, so each sits at the same spot open or closed. */
+.panel-toggle {
+  position: fixed;
+  top: calc((var(--titlebar-h) - 28px) / 2);
+  z-index: 30;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.panel-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* Just right of the traffic lights; at the edge when they're hidden
+   (full screen), mirroring the right one. */
+.panel-toggle.left {
+  left: 88px;
+}
+
+.no-traffic-lights .panel-toggle.left {
+  left: 12px;
+}
+
+.panel-toggle.right {
+  right: 12px;
+}
+
+.panel-toggle-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel);
 }
 
 .sidebar-search {
@@ -206,6 +285,40 @@ button:focus-visible,
 
 .song-row:hover {
   background: var(--hover);
+}
+
+.song-item {
+  position: relative;
+}
+
+/* Over the row's right end, shown on hover (and while its menu is open). */
+.song-more {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  margin-top: -11px;
+  border-radius: 5px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  background: var(--panel-3);
+}
+
+.song-more.current {
+  color: var(--accent-ink);
+  background: var(--accent-press);
+}
+
+.song-item:hover .song-more,
+.song-more.open {
+  display: flex;
+}
+
+.song-item:hover .song-star {
+  visibility: hidden;
 }
 
 .song-row.current {
@@ -406,6 +519,7 @@ button:focus-visible,
    Edge to edge, like a native window: the bars inside already carry their own
    separators, so there is no card around them. */
 .content {
+  flex: 1;
   min-width: 0;
   overflow-y: auto;
   background: var(--bg);
@@ -415,7 +529,7 @@ button:focus-visible,
 
 /* Only for the empty state, where there is no toolbar to drag by. */
 .content-drag {
-  height: 38px;
+  height: var(--titlebar-h);
   flex: none;
 }
 
@@ -555,6 +669,167 @@ button:focus-visible,
   flex-direction: column;
 }
 
+/* ---------- Launch screen ----------
+   The chat's message box in the middle of the window, a few ways to start,
+   and the songs from last time. */
+.home {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 24px 20px;
+  min-height: 0;
+}
+
+.home-main {
+  width: min(640px, 100%);
+  margin: auto 0;
+  padding: 24px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.home-title {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: center;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.home-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The box itself: one rounded surface, the textarea borderless inside it. */
+.chat-compose.is-home {
+  padding: 12px 12px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chat-compose.is-home:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border-strong));
+}
+
+.chat-compose.is-home .chat-input {
+  font-size: 14px;
+  padding: 4px 4px 8px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  min-height: 72px;
+}
+
+.home-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-starter {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 15px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.home-starter:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.home-blocked {
+  padding: 18px 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.home-blocked-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.home-blocked-desc {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+}
+
+.home-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.home-status .spinner {
+  margin-bottom: 6px;
+}
+
+.home-status-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.home-status-sub {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.home-recent h2 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+  margin: 0 0 6px 4px;
+}
+
+.home-recent ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-recent button {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-recent button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.home-drop {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
 /* ---------- Drop zone ---------- */
 .dropzone {
   margin: auto;
@@ -573,7 +848,7 @@ button:focus-visible,
 
 .dropzone.dragging {
   border-color: var(--accent);
-  background: rgba(245, 166, 35, 0.06);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .dropzone-icon {
@@ -638,72 +913,87 @@ button:focus-visible,
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
+  gap: 12px;
+  height: var(--titlebar-h);
+  flex: none;
+  padding: 0 14px;
+  container: toolbar / inline-size;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
 
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* With a panel hidden its toggle sits over the toolbar: make room for it
+   (and on the left, for the traffic lights too). */
+.shell.sidebar-closed .toolbar {
+  padding-left: 128px;
 }
 
-.toolbar-sep {
-  width: 1px;
-  height: 22px;
-  background: var(--border);
+.shell.sidebar-closed.no-traffic-lights .toolbar {
+  padding-left: 52px;
+}
+
+.shell.chat-closed .toolbar {
+  padding-right: 52px;
+}
+
+.toolbar-group {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .transport-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text);
-  background: var(--panel-3);
-  border: 1px solid var(--border);
-  transition: background 0.12s ease, border-color 0.12s ease;
+  color: var(--text-dim);
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .transport-btn:hover {
   background: var(--hover);
-  border-color: var(--border-strong);
+  color: var(--text);
 }
 
 .transport-btn.primary {
-  width: 40px;
+  width: 34px;
+  height: 34px;
+  margin: 0 2px;
+  border-radius: 50%;
   background: var(--accent);
-  border-color: rgba(0, 0, 0, 0.2);
   color: var(--accent-ink);
 }
 
 .transport-btn.primary:hover {
   background: var(--accent-press);
+  color: var(--accent-ink);
 }
 
 .transport-btn.active {
-  background: rgba(245, 166, 35, 0.18);
-  border-color: rgba(245, 166, 35, 0.5);
-  color: var(--accent);
+  background: var(--accent-tint);
+  border-color: transparent;
+  color: var(--accent-tint-ink);
 }
 
 .time-display {
+  flex: none;
   font-family: var(--font-mono);
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 500;
-  letter-spacing: 0.02em;
   color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 12px;
-  min-width: 92px;
-  text-align: center;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .time-display .sep {
@@ -713,8 +1003,8 @@ button:focus-visible,
 
 .time-display .total {
   color: var(--text-faint);
-  font-size: 13px;
-  margin-left: 6px;
+  font-size: 11.5px;
+  margin-left: 5px;
 }
 
 .song-title {
@@ -751,10 +1041,25 @@ button:focus-visible,
 }
 
 .volume-cluster {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--text-dim);
+}
+
+/* A narrow pane keeps the transport and the title; the rest steps aside. */
+@container toolbar (max-width: 640px) {
+  .volume-cluster input[type="range"] {
+    width: 64px;
+  }
+}
+
+@container toolbar (max-width: 520px) {
+  .volume-cluster,
+  .time-display .total {
+    display: none;
+  }
 }
 
 input[type="range"] {
@@ -787,66 +1092,219 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
-/* ---------- View switcher (tabs) ---------- */
+/* ---------- View bar ----------
+   One row: which view, then that view's tools. Icons over words, sentence
+   case over capitals, and the accent only on what is switched on. */
 .view-shell {
+  flex: 1;
   display: flex;
   flex-direction: column;
 }
 
-.view-tabs {
+.view-bar {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  container: viewbar / inline-size;
+  padding: 0 8px 0 10px;
   background: var(--panel-2);
   border-bottom: 1px solid var(--border);
-  padding: 0 6px;
 }
 
-.view-tab {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.view-bar-tools {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* The tools hug the right; the hint takes what room is left of them. */
+.view-bar-tools .show-menu {
+  margin-left: auto;
+}
+
+/* Narrow: the hint goes first, then the words on the Show button. */
+@container viewbar (max-width: 620px) {
+  .view-bar-hint {
+    display: none;
+  }
+}
+
+@container viewbar (max-width: 480px) {
+  .show-menu-label,
+  .show-menu-count {
+    display: none;
+  }
+
+  .segmented-control button {
+    padding: 0 8px;
+  }
+
+  .view-bar .tool-sep,
+  .show-menu .tool-btn svg:last-child {
+    display: none;
+  }
+
+  .view-bar {
+    padding: 0 4px 0 6px;
+  }
+}
+
+.view-bar-hint {
+  flex: 1;
+  min-width: 0;
+  margin-left: 10px;
+  font-size: 11.5px;
   color: var(--text-faint);
-  padding: 8px 14px;
-  border-radius: 0;
-  border: none;
-  background: transparent;
-  border-bottom: 2px solid transparent;
-  transition: color 0.1s ease, border-color 0.1s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.view-tab:hover {
-  color: var(--text-dim);
-}
-
-.view-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.view-toggle {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-  padding: 5px 12px;
-  margin: 4px 6px;
-  border-radius: 5px;
-  background: transparent;
+.segmented-control {
+  flex: none;
+  display: flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 7px;
+  background: var(--seg-track);
   border: 1px solid var(--border);
-  transition: all 0.12s ease;
 }
 
-.view-toggle:hover {
+.segmented-control button {
+  height: 24px;
+  padding: 0 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-dim);
-  border-color: var(--border-strong);
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.view-toggle.on {
-  background: rgba(245, 166, 35, 0.18);
-  border-color: rgba(245, 166, 35, 0.5);
-  color: var(--accent);
+.segmented-control button:hover {
+  color: var(--text);
+}
+
+.segmented-control button.on {
+  background: var(--seg-thumb);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 0 0 0.5px var(--border-strong);
+}
+
+.tool-btn {
+  flex: none;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.tool-btn:hover:not(:disabled),
+.tool-btn.open {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.tool-btn.on {
+  background: var(--accent-tint);
+  color: var(--accent-tint-ink);
+}
+
+.tool-btn.on:hover {
+  background: var(--accent-tint-hover);
+  color: var(--accent-tint-ink);
+}
+
+.tool-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tool-btn.with-label {
+  padding: 0 8px;
+}
+
+.tool-sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  background: var(--border-strong);
+}
+
+.show-menu {
+  position: relative;
+  flex: none;
+}
+
+.show-menu-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  background: var(--accent-tint);
+  color: var(--accent-tint-ink);
+}
+
+.show-menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 190px;
+  padding: 4px;
+  background: var(--menu);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+.show-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--text);
+}
+
+.show-menu-item:hover {
+  background: var(--hover);
+}
+
+.show-menu-check {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+}
+
+.show-menu-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* ---------- Keyboard view ---------- */
@@ -868,6 +1326,7 @@ input[type="range"]::-moz-range-thumb {
 /* ---------- Score view ---------- */
 .score-view {
   position: relative;
+  flex: 1;
   width: 100%;
   min-height: 320px;
   background: #f7f5ee;
@@ -947,31 +1406,24 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ---------- Piano roll ---------- */
+/* The roll takes whatever height the pane has left; its notes area grows. */
 .roll-shell {
   position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   background: var(--roll-bg);
   user-select: none;
 }
 
-.roll-toolbar {
+.roll-stage {
+  flex: 1;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  row-gap: 6px;
-  padding: 6px 10px;
-  background: var(--panel-2);
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-dim);
+  flex-direction: column;
 }
 
-.roll-toolbar .zoom-readout {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-dim);
-  min-width: 56px;
-  text-align: center;
+.roll-stage > * {
+  flex: none;
 }
 
 .zoom-btn {
@@ -1011,15 +1463,14 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .toggle-chip.on {
-  background: rgba(245, 166, 35, 0.16);
-  border-color: rgba(245, 166, 35, 0.45);
-  color: var(--accent);
+  background: var(--accent-tint);
+  border-color: transparent;
+  color: var(--accent-tint-ink);
 }
 
 .roll-main {
   position: relative;
   width: 100%;
-  height: 360px;
   background: var(--roll-bg);
   overflow: hidden;
 }
@@ -1037,53 +1488,21 @@ input[type="range"]::-moz-range-thumb {
   left: 0;
   width: 1.5px;
   height: 326px;
-  background: #f5a623;
+  background: var(--playhead);
   pointer-events: none;
   will-change: transform, opacity;
   transition: none;
   z-index: 2;
 }
 
-.roll-hint {
-  margin-left: 10px;
-  font-size: 11px;
-  color: var(--text-faint);
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* A range being handed to Claude: whole beats × whole keys. */
+/* A selection is a tint over the notes, like selected text: no outline. */
 .roll-selection {
   position: absolute;
   z-index: 3;
   pointer-events: none;
-  background: rgba(10, 132, 255, 0.16);
-  border: 1px solid var(--accent);
-  border-radius: 3px;
-}
-
-.roll-selection-btn {
-  position: absolute;
-  top: -26px;
-  right: -1px;
-  height: 22px;
-  padding: 0 9px;
-  pointer-events: auto;
-  white-space: nowrap;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent-ink);
-  background: var(--accent);
-  border: none;
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  cursor: pointer;
-}
-
-.roll-selection-btn:hover {
-  background: var(--accent-press);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 2px;
 }
 
 .roll-playhead::before {
@@ -1095,7 +1514,7 @@ input[type="range"]::-moz-range-thumb {
   height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
-  border-top: 9px solid #f5a623;
+  border-top: 9px solid var(--playhead);
 }
 
 .roll-overview {
@@ -1126,19 +1545,9 @@ input[type="range"]::-moz-range-thumb {
 
 @media (prefers-color-scheme: light) {
   .roll-overview .viewport-window {
-    background: rgba(0, 0, 0, 0.05);
-    border-color: rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.1);
   }
-}
-
-/* Which lanes the roll shows. */
-.roll-lane-toggles {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding-right: 6px;
-  margin-right: 2px;
-  border-right: 1px solid var(--border);
 }
 
 /* ---------- Controller lane (under the roll) ---------- */
@@ -1196,7 +1605,7 @@ input[type="range"]::-moz-range-thumb {
   bottom: 0;
   left: 0;
   width: 1.5px;
-  background: #f5a623;
+  background: var(--playhead);
   pointer-events: none;
   will-change: transform, opacity;
 }
@@ -1336,24 +1745,71 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ---------- Track list ---------- */
+/* A pane on the bottom edge: sized by its top edge, folded by its header. */
 .tracks {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-top: 1px solid var(--border);
   background: var(--panel);
-  max-height: 280px;
-  overflow-y: auto;
+}
+
+.tracks-resize {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 5;
+}
+
+.tracks-resize:hover {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+body.resizing-rows {
+  cursor: row-resize;
+  user-select: none;
 }
 
 .tracks-head {
-  position: sticky;
-  top: 0;
-  padding: 8px 14px;
-  font-size: 10px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-faint);
+  text-align: left;
+  color: var(--text-dim);
   background: var(--panel-2);
+}
+
+.tracks:not(.closed) .tracks-head {
   border-bottom: 1px solid var(--border);
+}
+
+.tracks-head:hover {
+  color: var(--text);
+}
+
+.tracks-chevron {
+  transition: transform 0.15s ease;
+}
+
+.tracks:not(.closed) .tracks-chevron {
+  transform: rotate(90deg);
+}
+
+.tracks-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .track-row {
@@ -1603,36 +2059,6 @@ input[type="range"]::-moz-range-thumb {
   text-overflow: ellipsis;
 }
 
-/* ---------- Status bar ---------- */
-.statusbar {
-  /* Sits on the bottom edge even when the views are short. */
-  margin-top: auto;
-  padding: 8px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-top: 1px solid var(--border);
-  background: var(--panel-2);
-  font-size: 11px;
-  color: var(--text-faint);
-}
-
-.kbd-hint {
-  font-family: var(--font-mono);
-}
-
-.kbd-hint kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--panel-3);
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  color: var(--text-dim);
-  font-size: 10px;
-  margin: 0 2px;
-}
-
 /* ---------- Loading / errors ---------- */
 .loading {
   margin: auto;
@@ -1673,46 +2099,67 @@ input[type="range"]::-moz-range-thumb {
   font-size: 12px;
 }
 
-.engine-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+/* ---------- Popover (toolbar) ---------- */
+.popover {
+  position: relative;
+  flex: none;
 }
 
-.engine-select select {
-  font: inherit;
-  color: var(--text-dim);
-  background: var(--panel-3);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 4px;
+.popover-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: 300px;
+  padding: 12px;
+  background: var(--menu);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  cursor: default;
 }
 
-/* ---------- Acoustics (venue / seat / output) ---------- */
+.popover-panel[hidden] {
+  display: none;
+}
+
+.popover-title {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---------- Sound settings (engine, venue, seat, output) ---------- */
+.sound-settings,
 .acoustics {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 18px;
-  padding: 7px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  flex-direction: column;
+  gap: 10px;
   font-size: 12px;
   color: var(--text-dim);
 }
 
+.sound-row,
 .acoustics-field {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
 }
 
+.sound-label,
 .acoustics-label {
-  font-size: 11px;
-  color: var(--text-faint);
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
-.acoustics select {
+.sound-settings select {
+  min-width: 0;
+  max-width: 180px;
   font: inherit;
   color: var(--text);
   background: var(--panel-3);
@@ -1721,27 +2168,33 @@ input[type="range"]::-moz-range-thumb {
   padding: 3px 6px;
 }
 
+/* The same control as the view picker, smaller, for settings. */
 .segmented {
   display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 6px;
+  background: var(--seg-track);
   border: 1px solid var(--border);
-  border-radius: 5px;
-  overflow: hidden;
 }
 
 .segmented button {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 4px;
   font-size: 12px;
-  padding: 3px 10px;
   color: var(--text-dim);
-  background: var(--panel-3);
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.segmented button + button {
-  border-left: 1px solid var(--border);
+.segmented button:hover:not(:disabled) {
+  color: var(--text);
 }
 
 .segmented button.on {
-  color: var(--accent-ink);
-  background: var(--accent);
+  background: var(--seg-thumb);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 0 0 0.5px var(--border-strong);
 }
 
 .segmented button:disabled {
@@ -1755,7 +2208,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .acoustics-library {
-  margin-left: auto;
+  align-self: flex-start;
   font-size: 12px;
   padding: 3px 10px;
 }
@@ -1964,7 +2417,7 @@ input[type="range"]::-moz-range-thumb {
 .lib-bar {
   position: absolute;
   inset: 0 auto 0 0;
-  background: rgba(245, 166, 35, 0.35);
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
   transition: width 0.3s ease;
 }
 
@@ -1974,7 +2427,7 @@ input[type="range"]::-moz-range-thumb {
    and what is happening now; numbers and metadata are small and tabular.
    The spacing and type steps below are that system's, on Otomo's colours. */
 .chat,
-.chat-rail {
+.home-compose {
   --c-space-1: 4px;
   --c-space-2: 8px;
   --c-space-3: 12px;
@@ -1985,6 +2438,9 @@ input[type="range"]::-moz-range-thumb {
   --c-text-xs: 11px;
   --c-radius: 7px;
   --c-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.chat {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1995,47 +2451,9 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .chat {
+  flex: none;
   min-width: 300px;
   max-width: 640px;
-}
-
-.chat-rail {
-  width: 44px;
-  align-items: center;
-}
-
-.chat-rail-drag {
-  height: 38px;
-  width: 100%;
-  flex: none;
-}
-
-.chat-rail-btn {
-  position: relative;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--c-radius);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-faint);
-  transition: background 0.15s var(--c-ease), color 0.15s var(--c-ease);
-}
-
-.chat-rail-btn:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.chat-rail-dot {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 2px var(--panel);
 }
 
 .chat-resize {
@@ -2059,12 +2477,13 @@ body.resizing {
 
 /* Header: a title, what this conversation is, three quiet icons. */
 .chat-head {
-  height: 38px;
+  height: var(--titlebar-h);
   flex: none;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 var(--c-space-2) 0 var(--c-space-4);
+  /* The right end belongs to the panel toggle. */
+  padding: 0 46px 0 var(--c-space-4);
   border-bottom: 1px solid var(--border);
 }
 
@@ -2199,7 +2618,7 @@ body.resizing {
 }
 
 .chat-history-item.is-active {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: var(--accent-tint);
 }
 
 .chat-history-main {
@@ -2662,8 +3081,8 @@ body.resizing {
   max-width: 100%;
   font-size: var(--c-text-sm);
   color: var(--text);
-  background: rgba(10, 132, 255, 0.12);
-  border: 1px solid rgba(10, 132, 255, 0.4);
+  background: var(--accent-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: 6px;
 }
 
@@ -2802,8 +3221,8 @@ body.resizing {
 }
 
 .chat-model:hover:not(.is-off) .chat-model-badge {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent-tint-ink);
 }
 
 .chat-model-key {
@@ -3156,27 +3575,51 @@ body.resizing {
 }
 
 /* A two-button bar over a piano-roll selection. */
+/* The action floats above the selection's end, in a menu-like pill. */
 .roll-selection-actions {
   position: absolute;
-  top: -26px;
-  right: -1px;
+  bottom: calc(100% + 6px);
+  right: 0;
   display: flex;
-  gap: 4px;
+  padding: 3px;
   pointer-events: auto;
-}
-
-.roll-selection-actions .roll-selection-btn {
-  position: static;
-}
-
-.roll-selection-btn.is-quiet {
-  color: var(--text);
-  background: var(--panel-3);
+  background: var(--menu);
   border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
 }
 
-.roll-selection-btn.is-quiet:hover {
+.roll-selection-actions.below {
+  bottom: auto;
+  top: calc(100% + 6px);
+}
+
+.roll-selection-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 6px 0 9px;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text);
+  border-radius: 5px;
+}
+
+.roll-selection-btn:hover {
   background: var(--hover);
+}
+
+.roll-selection-btn kbd {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
 }
 
 /* ---------- Toast ---------- */
@@ -3197,4 +3640,76 @@ body.resizing {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   font-size: 12px;
   color: var(--text);
+}
+
+/* ---------- Light theme: flat controls ----------
+   Buttons, chips and fields are a plain #F5F5F5 with no outline; the
+   coloured states (on, muted, solo, focus) keep theirs. */
+@media (prefers-color-scheme: light) {
+  .sidebar-search input,
+  .connect-btn,
+  .btn-quiet,
+  .btn-ghost,
+  .home-starter,
+  .chat-starter,
+  .chat-btn,
+  .chat-input,
+  .segmented-control,
+  .segmented,
+  .track-chip,
+  .toggle-chip,
+  .zoom-btn,
+  .mute-btn,
+  .solo-btn,
+  .picker-btn,
+  .lane-head select,
+  .track-instrument-select,
+  .instrument-picker select,
+  .sound-settings select,
+  .paste-modal select,
+  .roll-selection-btn kbd,
+  input[type="range"] {
+    border-color: transparent;
+  }
+
+  .connect-btn,
+  .btn-quiet,
+  .btn-ghost,
+  .home-starter,
+  .chat-starter,
+  .chat-btn,
+  .chat-input,
+  .track-chip,
+  .toggle-chip,
+  .mute-btn,
+  .solo-btn,
+  .picker-btn,
+  .lane-head select,
+  .track-instrument-select,
+  .instrument-picker select,
+  .sound-settings select,
+  .paste-modal select {
+    background-color: #f5f5f5;
+  }
+
+  /* The sidebar is the desktop showing through, close to #F5F5F5 itself;
+     the search field keeps a shade so it can be found. */
+  .sidebar-search input {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+
+  .connect-btn:hover:not(:disabled),
+  .btn-quiet:hover,
+  .btn-ghost:hover,
+  .home-starter:hover,
+  .chat-starter:hover:not(:disabled),
+  .chat-btn:hover:not(:disabled):not(.is-primary),
+  .track-chip:hover,
+  .toggle-chip:hover:not(.on),
+  .mute-btn:hover,
+  .solo-btn:hover,
+  .picker-btn:hover {
+    background-color: #ebebeb;
+    border-color: transparent;
+  }
 }

@@ -33,6 +33,10 @@ export const ja: Messages = {
   },
 
   sidebar: {
+    more: "その他",
+    hide: "ライブラリを隠す（⌃⌘S）",
+    show: "ライブラリを表示（⌃⌘S）",
+    toggleLabel: "ライブラリ",
     neverPlayed: "未再生",
     search: "検索",
     openFiles: "MIDI ファイルを開く（⌘O）",
@@ -117,6 +121,8 @@ export const ja: Messages = {
     loadingSounds: "楽器の音源を読み込んでいます…",
     loadFailed: "このファイルを読み込めませんでした。MIDI 形式と音源のダウンロード状況をご確認ください。",
     tracks: (n) => `トラック · ${n}`,
+    trackCount: (n) => `${n}トラック`,
+    noteCount: (n) => `${n.toLocaleString()}音`,
     changeInstrument: "楽器を変更",
     changeInstrumentTitle: "この楽器に変更",
     volumeOf: (name) => `${name} の音量`,
@@ -126,9 +132,6 @@ export const ja: Messages = {
     mute: "ミュート",
     unmute: "ミュート解除",
     muted: "ミュート中",
-    hintPlay: "再生 / 停止",
-    hintZoom: "ズーム",
-    hintScroll: "スクロール",
     engine: "音源エンジン",
     engineNative: "ネイティブ（SF2 / Rust）",
     engineWeb: "Web Audio（旧）",
@@ -145,18 +148,26 @@ export const ja: Messages = {
     open: "開く…",
     exportScore: "書き出す…",
     exportScoreTitle: "楽譜を PDF や MusicXML で書き出す（⌘E）",
+    sound: "サウンド",
+    playTitle: "再生 / 一時停止（Space）",
+  },
+
+  view: {
+    label: "表示",
+    roll: "ピアノロール",
+    score: "楽譜",
+    events: "イベント",
   },
 
   roll: {
-    hint: "ドラッグで範囲を選んで AI に渡せます",
+    show: "表示",
+    hint: "ドラッグで範囲を選んでチャットに渡せます",
     follow: "再生ヘッドに追従",
-    zoomOut: "ズームアウト",
-    zoomIn: "ズームイン",
+    zoomOut: "ズームアウト（⌘ + スクロール）",
+    zoomIn: "ズームイン（⌘ + スクロール）",
     fitAll: "全体を表示",
     attachTitle: "選んだ範囲をチャットに添付（Esc で解除）",
-    attach: "AIに渡す",
-    copy: "コピー",
-    copyTitle: "選んだ範囲をコピー（⌘C）。ほかの曲でも ⌘V で貼り付けられます",
+    attach: "チャットに渡す",
     showKeys: "鍵盤を表示",
     hideKeys: "鍵盤を非表示",
     chords: "コード",
@@ -258,6 +269,8 @@ export const ja: Messages = {
   },
 
   score: {
+    all: "すべて",
+    bars: (n) => `${n}小節`,
     fewerBars: "表示小節数を減らす",
     moreBars: "表示小節数を増やす",
     renderFailed: (error) => `楽譜の描画に失敗しました：${error}`,
@@ -270,6 +283,23 @@ export const ja: Messages = {
       `${fromBar}小節${fromBeat}拍〜${toBar}小節${toBeat}拍`,
     notes: (n) => `${n}音`,
     empty: "空",
+  },
+
+  home: {
+    title: "どんな曲を作りますか？",
+    placeholder: "作りたい曲や、探してほしい曲を書く",
+    starters: [
+      "8小節のローファイなピアノ曲を作って",
+      "ドビュッシーの「月の光」のピアノ譜を探して取り込んで",
+      "ボサノバの伴奏を作って",
+    ],
+    openMidi: "MIDI ファイルを開く…",
+    recent: "最近の曲",
+    dropHint: "MIDI ファイルをウィンドウにドロップしても始められます",
+    working: "Claude が作業しています",
+    workingSub: "曲ができると、ここに開きます",
+    idle: "曲を開くと、ここに表示されます",
+    idleSub: "ライブラリから選ぶか、右のチャットで頼んでください",
   },
 
   chat: {

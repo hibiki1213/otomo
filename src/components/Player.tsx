@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   MidiEngine,
   keySignatureLabel,
@@ -31,6 +32,20 @@ import { scoreChords, type ChordAt } from "@/lib/scoreApi";
 import { libraryAvailable } from "@/lib/songsApi";
 import ControllerLane from "@/components/ControllerLane";
 import EventList from "@/components/EventList";
+import {
+  ExportIcon,
+  FitIcon,
+  Popover,
+  SoundIcon,
+  FolderIcon,
+  FollowIcon,
+  KeysIcon,
+  Segmented,
+  ShowMenu,
+  ToolButton,
+  ZoomInIcon,
+  ZoomOutIcon,
+} from "@/components/ViewBar";
 import {
   beatOfBar,
   beatPosition,
@@ -128,6 +143,8 @@ export interface SongSource {
 
 export default function Player({
   source,
+  notices,
+  empty,
   onLoaded,
   onStateChange,
   onOpenFiles,
@@ -141,6 +158,11 @@ export default function Player({
   onHistory,
 }: {
   source: SongSource | null;
+  /** Banners about the library (errors, Claude's waiting edits), shown just
+      under the title bar so they never sit beneath the traffic lights. */
+  notices?: React.ReactNode;
+  /** What to show with no song open; a plain drop zone when absent. */
+  empty?: React.ReactNode;
   /** Reports what opening the song revealed, for the library entry. */
   onLoaded: (id: number, info: SongInfo) => void;
   onStateChange: (state: PlayerState) => void;
@@ -502,8 +524,7 @@ export default function Player({
   const trackList = useMemo(() => {
     if (!song) return null;
     return (
-      <div className="tracks">
-        <div className="tracks-head">{t.player.tracks(song.tracks.length)}</div>
+      <div className="tracks-body">
         {song.tracks.map((track) => {
           const currentProgram =
             trackPrograms[track.index] ?? track.program;
@@ -541,7 +562,7 @@ export default function Player({
                   {" · "}
                   CH {track.channel + 1}
                   {" · "}
-                  {track.noteCount} notes
+                  {t.player.noteCount(track.noteCount)}
                 </div>
                 {engineKind === "native" && (
                   <InstrumentPicker
@@ -622,6 +643,28 @@ export default function Player({
 
   const isPlaying = state === "playing";
 
+  // The track list is a pane under the views: drag its top edge to size it,
+  // click its header to fold it away.
+  const [tracksOpen, setTracksOpen] = useState(() => readPref(TRACKS_OPEN_KEY) !== "0");
+  const [tracksH, setTracksH] = useState(() => Number(readPref(TRACKS_H_KEY)) || 200);
+  useEffect(() => writePref(TRACKS_OPEN_KEY, tracksOpen ? "1" : "0"), [tracksOpen]);
+  useEffect(() => writePref(TRACKS_H_KEY, String(tracksH)), [tracksH]);
+  const startTracksResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = tracksH;
+    const move = (ev: PointerEvent) =>
+      setTracksH(Math.max(TRACKS_MIN_H, Math.min(window.innerHeight * 0.6, startH + startY - ev.clientY)));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.classList.remove("resizing-rows");
+    };
+    document.body.classList.add("resizing-rows");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const songTempoMap = useMemo(
     () => (song ? buildTempoMap(song.tempos, song.duration) : null),
     [song]
@@ -654,9 +697,10 @@ export default function Player({
 
   return (
     <div className="card">
+      {!song && notices}
       {!song && state !== "loading" && (
         <>
-          <DropZone onPick={onOpenFiles} />
+          {empty ?? <DropZone onPick={onOpenFiles} />}
           {error && <div className="error">{error}</div>}
         </>
       )}
@@ -685,11 +729,23 @@ export default function Player({
             onVolume={onVolume}
             onOpen={onOpenFiles}
             onExport={onExport}
+            sound={
+              <div className="sound-settings">
+                {RustEngine.available() && (
+                  <label className="sound-row">
+                    <span className="sound-label">{t.player.engine}</span>
+                    <select value={engineKind} onChange={(e) => setEngineKind(e.target.value as EngineKind)}>
+                      <option value="native">{t.player.engineNative}</option>
+                      <option value="web">{t.player.engineWeb}</option>
+                    </select>
+                  </label>
+                )}
+                {engineKind === "native" && <AcousticsBar onOpenLibrary={() => setShowLibrary(true)} />}
+              </div>
+            }
           />
 
-          {engineKind === "native" && (
-            <AcousticsBar onOpenLibrary={() => setShowLibrary(true)} />
-          )}
+          {notices}
 
           <ViewSwitcher
             primary={primaryView}
@@ -708,7 +764,6 @@ export default function Player({
             buffer={songBuffer}
           />
 
-          {trackList}
 
           {song.textMeta.length > 0 && (
             <div className="meta-strip">
@@ -722,26 +777,15 @@ export default function Player({
 
           {error && <div className="error">{error}</div>}
 
-          <div className="statusbar">
-            <span className="kbd-hint">
-              <kbd>Space</kbd> {t.player.hintPlay}
-              <span style={{ opacity: 0.5, margin: "0 6px" }}>·</span>
-              <kbd>Cmd</kbd>+<kbd>Wheel</kbd> {t.player.hintZoom}
-              <span style={{ opacity: 0.5, margin: "0 6px" }}>·</span>
-              <kbd>Wheel</kbd> {t.player.hintScroll}
-            </span>
-            {RustEngine.available() && (
-              <label className="engine-select">
-                {t.player.engine}
-                <select
-                  value={engineKind}
-                  onChange={(e) => setEngineKind(e.target.value as EngineKind)}
-                >
-                  <option value="native">{t.player.engineNative}</option>
-                  <option value="web">{t.player.engineWeb}</option>
-                </select>
-              </label>
-            )}
+          <div className={`tracks${tracksOpen ? "" : " closed"}`} style={tracksOpen ? { height: tracksH } : undefined}>
+            {tracksOpen && <div className="tracks-resize" onPointerDown={startTracksResize} />}
+            <button className="tracks-head" onClick={() => setTracksOpen((v) => !v)} aria-expanded={tracksOpen}>
+              <svg className="tracks-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+              {t.player.tracks(song.tracks.length)}
+            </button>
+            {tracksOpen && trackList}
           </div>
         </>
       )}
@@ -769,6 +813,26 @@ export default function Player({
 
     </div>
   );
+}
+
+const TRACKS_OPEN_KEY = "otomo.tracks.open";
+const TRACKS_H_KEY = "otomo.tracks.height";
+const TRACKS_MIN_H = 96;
+
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writePref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* only the memory of the layout is lost */
+  }
 }
 
 /* ---------- drop zone ---------- */
@@ -882,6 +946,7 @@ function Toolbar({
   onVolume,
   onOpen,
   onExport,
+  sound,
 }: {
   song: SongInfo;
   /** The library's name for the song, which the user can rename. */
@@ -898,6 +963,8 @@ function Toolbar({
   onVolume: (v: number) => void;
   onOpen: () => void;
   onExport?: () => void;
+  /** The sound settings (engine, room, seat, output), behind one button. */
+  sound: React.ReactNode;
 }) {
   const { t } = useI18n();
   const tempoVaries = song.bpmMin !== song.bpmMax;
@@ -918,6 +985,7 @@ function Toolbar({
           className="transport-btn primary"
           onClick={onTogglePlay}
           aria-label={isPlaying ? t.player.pause : t.player.play}
+          title={t.player.playTitle}
         >
           <Icon path={isPlaying ? ICON.pause : ICON.play} size={18} />
         </button>
@@ -939,18 +1007,16 @@ function Toolbar({
         </button>
       </div>
 
-      <div className="toolbar-sep" />
-
       <div className="time-display">
         {formatTime(position)}
         <span className="total">/ {formatDuration(song.duration)}</span>
       </div>
 
-      <div className="toolbar-sep" />
-
-      <div className="song-title">
-        <div className="song-name">{title}</div>
-        <div className="song-meta">
+      <div className="song-title" data-tauri-drag-region>
+        <div className="song-name" data-tauri-drag-region>
+          {title}
+        </div>
+        <div className="song-meta" data-tauri-drag-region>
           {tempoVaries ? (
             <>
               <span style={{ color: "var(--accent)" }}>{currentBpm}</span>
@@ -987,13 +1053,11 @@ function Toolbar({
             </>
           )}
           <span className="dot">·</span>
-          {song.tracks.length} TRK
+          {t.player.trackCount(song.tracks.length)}
           <span className="dot">·</span>
-          {song.notes.length} NOTES
+          {t.player.noteCount(song.notes.length)}
         </div>
       </div>
-
-      <div className="toolbar-sep" />
 
       <div className="volume-cluster">
         <Icon path={ICON.speaker} size={15} />
@@ -1008,16 +1072,19 @@ function Toolbar({
         />
       </div>
 
-      <div className="toolbar-sep" />
-
-      <button className="btn-ghost" onClick={onOpen}>
-        {t.player.open}
-      </button>
-      {onExport && (
-        <button className="btn-ghost" onClick={onExport} title={t.player.exportScoreTitle}>
-          {t.player.exportScore}
-        </button>
-      )}
+      <div className="toolbar-actions">
+        <Popover title={t.player.sound} icon={<SoundIcon />}>
+          {sound}
+        </Popover>
+        <ToolButton title={t.sidebar.openFiles} onClick={onOpen}>
+          <FolderIcon />
+        </ToolButton>
+        {onExport && (
+          <ToolButton title={t.player.exportScoreTitle} onClick={onExport}>
+            <ExportIcon />
+          </ToolButton>
+        )}
+      </div>
     </div>
   );
 }
@@ -1025,8 +1092,8 @@ function Toolbar({
 /* ---------- piano roll ---------- */
 
 const RULER_H = 38;
-const ROLL_TOTAL_H = 360;
-const ROLL_NOTES_H = ROLL_TOTAL_H - RULER_H;
+/** The pitched notes never get shorter than this; taller when there is room. */
+const ROLL_NOTES_MIN_H = 240;
 const OVERVIEW_H = 64;
 /** The chord and lyric lanes under the ruler. */
 const TEXT_LANE_H = 20;
@@ -1126,8 +1193,8 @@ function drawChordLane(
   ctx.fillRect(0, top, v.w, h);
   ctx.font = `600 ${LANE_FONT}`;
   ctx.textBaseline = "middle";
-  const ink = v.dark ? "#e8eaed" : "#1a1a1a";
-  const faint = v.dark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.45)";
+  const ink = v.dark ? "#e8eaed" : "#737373";
+  const faint = v.dark ? "rgba(255,255,255,0.4)" : "#a3a3a3";
   const tick = v.dark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.2)";
   for (let i = Math.max(0, lastAtOrBefore(chords, v.startT)); i < chords.length; i++) {
     const c = chords[i];
@@ -1182,7 +1249,7 @@ function drawLyricLane(
   ctx.font = LANE_FONT;
   ctx.textBaseline = "middle";
   const sung = v.dark ? "#d7b8f3" : "#6a2ca8";
-  const coming = v.dark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.55)";
+  const coming = v.dark ? "rgba(255,255,255,0.55)" : "#737373";
   const y = top + h / 2;
   for (let i = Math.max(0, lastAtOrBefore(lines, v.startT)); i < lines.length; i++) {
     const line = lines[i];
@@ -1227,6 +1294,7 @@ function PianoRoll({
   onAttach,
   onCopy,
   estimateChords,
+  toolbarSlot,
 }: {
   song: SongInfo;
   position: number;
@@ -1234,6 +1302,8 @@ function PianoRoll({
   muted: boolean[];
   onSeek: (ratio: number) => void;
   getLivePosition: () => number;
+  /** Where the roll's tools go: the view bar, beside the view picker. */
+  toolbarSlot: HTMLElement | null;
   /** Drag in the notes area selects a range for this; a click still seeks. */
   onAttach?: (sel: RollSelectionDraft) => void;
   /** …or to copy it (⌘C). */
@@ -1250,6 +1320,8 @@ function PianoRoll({
   const overviewRef = useRef<HTMLCanvasElement | null>(null);
 
   const [viewportW, setViewportW] = useState(800);
+  // The room the pane gives the roll, which the pitched notes grow into.
+  const [mainH, setMainH] = useState(0);
   const [overviewW, setOverviewW] = useState(800);
   const [pxPerSec, setPxPerSec] = useState(40);
   const [scrollX, setScrollX] = useState(0);
@@ -1327,12 +1399,14 @@ function PianoRoll({
     const chordsTop = RULER_H;
     const lyricsTop = chordsTop + (showChords ? TEXT_LANE_H : 0);
     const notesTop = lyricsTop + (showLyrics ? TEXT_LANE_H : 0);
-    const notesH = pitched || drumKeys.length === 0 ? ROLL_NOTES_H : 0;
-    const drumTop = notesTop + notesH;
-    const maxRow = notesH === 0 ? DRUM_ROW_MAX + 4 : DRUM_ROW_MAX;
+    const maxRow = pitched ? DRUM_ROW_MAX : DRUM_ROW_MAX + 4;
     const drumRowH = drumKeys.length
       ? Math.max(DRUM_ROW_MIN, Math.min(maxRow, Math.floor(DRUMS_MAX_H / drumKeys.length)))
       : 0;
+    const drumsH = drumKeys.length * drumRowH;
+    const notesH =
+      pitched || drumKeys.length === 0 ? Math.max(ROLL_NOTES_MIN_H, mainH - notesTop - drumsH) : 0;
+    const drumTop = notesTop + notesH;
     return {
       chordsTop,
       lyricsTop,
@@ -1343,7 +1417,7 @@ function PianoRoll({
       drumKeys,
       totalH: drumTop + drumKeys.length * drumRowH,
     };
-  }, [song, isDrum, showChords, showLyrics]);
+  }, [song, isDrum, showChords, showLyrics, mainH]);
 
   const tempoMap = useMemo(
     () => buildTempoMap(song.tempos, song.duration),
@@ -1391,7 +1465,10 @@ function PianoRoll({
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
-    const update = () => setViewportW(el.clientWidth || 800);
+    const update = () => {
+      setViewportW(el.clientWidth || 800);
+      setMainH(el.clientHeight);
+    };
     update();
     const obs = new ResizeObserver(update);
     obs.observe(el);
@@ -1496,8 +1573,8 @@ function PianoRoll({
 
     const rollBg = dark ? "#0a0b0d" : "#f4f5f7";
     const rulerBg = dark ? "#15171a" : "#eceef1";
-    const rulerText = dark ? "#8a8e95" : "#5d6168";
-    const rulerTick = dark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.25)";
+    const rulerText = dark ? "#8a8e95" : "#737373";
+    const rulerTick = dark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)";
     const octaveLine = dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)";
     const beatLine = dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)";
     const barLine = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
@@ -1716,7 +1793,7 @@ function PianoRoll({
         ctx.stroke();
         // label clipped
         const label = m.text.length > 18 ? m.text.slice(0, 17) + "…" : m.text;
-        ctx.fillStyle = dark ? "#e8eaed" : "#1a1a1a";
+        ctx.fillStyle = dark ? "#e8eaed" : "#737373";
         ctx.fillText(label, x + 9, 0);
       }
       ctx.restore();
@@ -1742,7 +1819,7 @@ function PianoRoll({
         ctx.fillStyle = dark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.03)";
         ctx.fillRect(0, layout.drumTop + i * layout.drumRowH, w, layout.drumRowH);
       }
-      ctx.strokeStyle = dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.14)";
+      ctx.strokeStyle = dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)";
       ctx.beginPath();
       ctx.moveTo(0, layout.drumTop + 0.5);
       ctx.lineTo(w, layout.drumTop + 0.5);
@@ -2085,6 +2162,25 @@ function PianoRoll({
     setSel(null);
   };
 
+  // ⌘L with a range selected hands it to the chat, as Cursor's "Add to
+  // Chat" does; without one, ⌘L still just shows or hides the chat.
+  const attachRef = useRef(attachSelection);
+  attachRef.current = attachSelection;
+  useEffect(() => {
+    if (!sel || !onAttach) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "l") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      e.preventDefault();
+      // Ahead of the app's own ⌘L, which would close the chat again.
+      e.stopPropagation();
+      attachRef.current();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [sel, onAttach]);
+
   const selBox = useMemo(() => {
     if (!sel) return null;
     const x0 = beatToTime(tempoMap, sel.b0) * pxPerSec - scrollX;
@@ -2185,97 +2281,52 @@ function PianoRoll({
     setScrollX(0);
   };
 
-  const zoomReadout = `${Math.round(pxPerSec)} px/s`;
+  const showOptions = [
+    (song.chords.length > 0 || estimateChords) && {
+      key: "chords",
+      label: t.roll.chords,
+      title: t.roll.chordsTitle,
+      on: lanes.chords,
+    },
+    lyrics.length > 0 && { key: "lyrics", label: t.roll.lyrics, title: t.roll.lyricsTitle, on: lanes.lyrics },
+    hasBends && { key: "bends", label: t.roll.bends, title: t.roll.bendsTitle, on: lanes.bends },
+    { key: "controllers", label: t.roll.lanes, title: t.roll.lanesTitle, on: lanes.controllers },
+  ].filter((o): o is { key: keyof RollLanes; label: string; title: string; on: boolean } => !!o);
+
+  const tools = (
+    <>
+      {onAttach && <span className="view-bar-hint">{t.roll.hint}</span>}
+      <ShowMenu label={t.roll.show} options={showOptions} onToggle={(k) => toggleLane(k as keyof RollLanes)} />
+      <div className="tool-sep" />
+      <ToolButton title={t.roll.follow} pressed={follow} onClick={() => setFollow((f) => !f)}>
+        <FollowIcon />
+      </ToolButton>
+      <ToolButton title={t.roll.zoomOut} onClick={() => zoomBy(1 / 1.5)} disabled={pxPerSec <= MIN_PX_PER_SEC}>
+        <ZoomOutIcon />
+      </ToolButton>
+      <ToolButton title={t.roll.zoomIn} onClick={() => zoomBy(1.5)} disabled={pxPerSec >= MAX_PX_PER_SEC}>
+        <ZoomInIcon />
+      </ToolButton>
+      <ToolButton title={t.roll.fitAll} onClick={fitAll}>
+        <FitIcon />
+      </ToolButton>
+    </>
+  );
 
   return (
     <div className="roll-shell">
-      <div className="roll-toolbar">
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-            color: "var(--text-faint)",
-            whiteSpace: "nowrap",
-          }}
-        >
-          Piano Roll
-        </span>
-        {onAttach && (
-          <span className="roll-hint">{t.roll.hint}</span>
-        )}
-        <div style={{ flex: 1 }} />
-        <div className="roll-lane-toggles">
-          {(song.chords.length > 0 || estimateChords) && (
-            <button
-              className={`toggle-chip${lanes.chords ? " on" : ""}`}
-              onClick={() => toggleLane("chords")}
-              title={t.roll.chordsTitle}
-            >
-              {t.roll.chords}
-            </button>
-          )}
-          {lyrics.length > 0 && (
-            <button
-              className={`toggle-chip${lanes.lyrics ? " on" : ""}`}
-              onClick={() => toggleLane("lyrics")}
-              title={t.roll.lyricsTitle}
-            >
-              {t.roll.lyrics}
-            </button>
-          )}
-          {hasBends && (
-            <button
-              className={`toggle-chip${lanes.bends ? " on" : ""}`}
-              onClick={() => toggleLane("bends")}
-              title={t.roll.bendsTitle}
-            >
-              {t.roll.bends}
-            </button>
-          )}
-          <button
-            className={`toggle-chip${lanes.controllers ? " on" : ""}`}
-            onClick={() => toggleLane("controllers")}
-            title={t.roll.lanesTitle}
-          >
-            {t.roll.lanes}
-          </button>
-        </div>
-        <button
-          className={`toggle-chip${follow ? " on" : ""}`}
-          onClick={() => setFollow((f) => !f)}
-          title={t.roll.follow}
-        >
-          Follow
-        </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <button
-            className="zoom-btn"
-            onClick={() => zoomBy(1 / 1.5)}
-            aria-label={t.roll.zoomOut}
-          >
-            −
-          </button>
-          <span className="zoom-readout">{zoomReadout}</span>
-          <button
-            className="zoom-btn"
-            onClick={() => zoomBy(1.5)}
-            aria-label={t.roll.zoomIn}
-          >
-            +
-          </button>
-        </div>
-        <button className="toggle-chip" onClick={fitAll} title={t.roll.fitAll}>
-          Fit
-        </button>
-      </div>
+      {toolbarSlot && createPortal(tools, toolbarSlot)}
 
-      <div ref={stageRef}>
+      <div ref={stageRef} className="roll-stage">
         <div
           ref={mainRef}
           className="roll-main"
-          style={{ height: layout.totalH }}
+          // Pitched notes stretch to fill the pane; drums alone keep their size.
+          style={
+            layout.notesH > 0
+              ? { flex: "1 1 0", minHeight: layout.totalH - layout.notesH + ROLL_NOTES_MIN_H }
+              : { height: layout.totalH }
+          }
           onPointerDown={(e) => {
             (e.target as Element).setPointerCapture?.(e.pointerId);
             const p = onAttach || onCopy ? pointAt(e.clientX, e.clientY) : null;
@@ -2292,18 +2343,21 @@ function PianoRoll({
           <div ref={playheadRef} className="roll-playhead" style={{ height: layout.totalH - PLAYHEAD_TOP }} />
           {selBox && (
             <div className="roll-selection" style={selBox}>
-              <div className="roll-selection-actions" onPointerDown={(e) => e.stopPropagation()}>
-                {onCopy && (
-                  <button className="roll-selection-btn is-quiet" onClick={copySelection} title={t.roll.copyTitle}>
-                    {t.roll.copy}
-                  </button>
-                )}
-                {onAttach && (
+              {/* One action, as in an editor: copying is ⌘C, not a button. */}
+              {onAttach && (
+                <div
+                  // Below the range when there's no room above it; pulled in
+                  // from the right when its end is scrolled out of view.
+                  className={`roll-selection-actions${selBox.top < 44 ? " below" : ""}`}
+                  style={{ right: Math.max(0, selBox.left + selBox.width - viewportW + 8) }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
                   <button className="roll-selection-btn" onClick={attachSelection} title={t.roll.attachTitle}>
                     {t.roll.attach}
+                    <kbd>⌘L</kbd>
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2366,7 +2420,7 @@ function PianoRoll({
             bottom: 0,
             left: `${overviewPlayheadX}px`,
             width: 1,
-            background: "#f5a623",
+            background: "var(--playhead)",
             opacity: 0.9,
             pointerEvents: "none",
           }}
@@ -2413,37 +2467,26 @@ function ViewSwitcher({
   buffer: ArrayBuffer | null;
 }) {
   const { t } = useI18n();
+  // The roll's tools render into this, so the bar stays one row.
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   return (
     <div className="view-shell">
-      <div className="view-tabs">
-        <button
-          className={`view-tab${primary === "roll" ? " active" : ""}`}
-          onClick={() => onPrimaryChange("roll")}
-        >
-          Piano Roll
-        </button>
-        <button
-          className={`view-tab${primary === "score" ? " active" : ""}`}
-          onClick={() => onPrimaryChange("score")}
-        >
-          Score
-        </button>
-        {buffer && (
-          <button
-            className={`view-tab${primary === "events" ? " active" : ""}`}
-            onClick={() => onPrimaryChange("events")}
-          >
-            Events
-          </button>
-        )}
-        <div style={{ flex: 1 }} />
-        <button
-          className={`view-toggle${showKeys ? " on" : ""}`}
-          onClick={onToggleKeys}
-          title={showKeys ? t.roll.hideKeys : t.roll.showKeys}
-        >
-          {showKeys ? "▾" : "▸"} Keyboard
-        </button>
+      <div className="view-bar">
+        <Segmented
+          label={t.view.label}
+          value={primary}
+          onChange={onPrimaryChange}
+          options={[
+            { value: "roll" as const, label: t.view.roll },
+            { value: "score" as const, label: t.view.score },
+            ...(buffer ? [{ value: "events" as const, label: t.view.events }] : []),
+          ]}
+        />
+        <div ref={setSlot} className="view-bar-tools" />
+        <div className="tool-sep" />
+        <ToolButton title={showKeys ? t.roll.hideKeys : t.roll.showKeys} pressed={showKeys} onClick={onToggleKeys}>
+          <KeysIcon />
+        </ToolButton>
       </div>
       {primary === "roll" && (
         <PianoRoll
@@ -2456,6 +2499,7 @@ function ViewSwitcher({
           onAttach={onAttach}
           onCopy={onCopy}
           estimateChords={estimateChords}
+          toolbarSlot={slot}
         />
       )}
       {primary === "events" && buffer && (
@@ -2634,7 +2678,7 @@ function KeyboardView({
     const whiteKey = dark ? "#f0f0f3" : "#ffffff";
     const whiteEdge = dark ? "#0a0b0d" : "#7a7d83";
     const blackKey = dark ? "#15171a" : "#1a1c20";
-    const cLabelDim = dark ? "#6d7077" : "#5d6168";
+    const cLabelDim = dark ? "#6d7077" : "#737373";
 
     let raf = 0;
 
@@ -3245,7 +3289,7 @@ function ScoreView({
           className={`track-chip${allOn ? " on" : ""}`}
           onClick={() => setScoreTracks(null)}
         >
-          All
+          {t.score.all}
         </button>
         {song.tracks.map((t) => {
           const on = allOn || (scoreTracks?.has(t.index) ?? false);
@@ -3285,7 +3329,7 @@ function ScoreView({
           >
             −
           </button>
-          <span className="zoom-readout">{barsPerPage} bars</span>
+          <span className="zoom-readout">{t.score.bars(barsPerPage)}</span>
           <button
             className="zoom-btn"
             onClick={() =>

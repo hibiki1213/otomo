@@ -23,6 +23,7 @@
         "center": true,
         "dragDropEnabled": true,
         "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 18, "y": 28 },
         "hiddenTitle": true,
         "transparent": true,
         "windowEffects": {

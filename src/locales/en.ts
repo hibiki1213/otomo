@@ -38,6 +38,10 @@ export const en = {
   },
 
   sidebar: {
+    more: "More",
+    hide: "Hide the library (⌃⌘S)",
+    show: "Show the library (⌃⌘S)",
+    toggleLabel: "Library",
     neverPlayed: "Not played",
     search: "Search",
     openFiles: "Open MIDI files (⌘O)",
@@ -123,6 +127,8 @@ export const en = {
     loadingSounds: "Loading instrument sounds…",
     loadFailed: "Couldn't load this file. Check that it is a MIDI file and that its sounds have downloaded.",
     tracks: (n: number) => `Tracks · ${n}`,
+    trackCount: (n: number) => (n === 1 ? "1 track" : `${n} tracks`),
+    noteCount: (n: number) => (n === 1 ? "1 note" : `${n.toLocaleString()} notes`),
     changeInstrument: "Change instrument",
     changeInstrumentTitle: "Switch to this instrument",
     volumeOf: (name: string) => `${name} volume`,
@@ -132,9 +138,6 @@ export const en = {
     mute: "Mute",
     unmute: "Unmute",
     muted: "Muted",
-    hintPlay: "Play / Stop",
-    hintZoom: "Zoom",
-    hintScroll: "Scroll",
     engine: "Sound engine",
     engineNative: "Native (SF2 / Rust)",
     engineWeb: "Web Audio (legacy)",
@@ -151,18 +154,27 @@ export const en = {
     open: "Open…",
     exportScore: "Export…",
     exportScoreTitle: "Export the score as PDF or MusicXML (⌘E)",
+    sound: "Sound",
+    playTitle: "Play / Pause (Space)",
+  },
+
+  view: {
+    label: "View",
+    roll: "Piano roll",
+    score: "Score",
+    events: "Events",
   },
 
   roll: {
-    hint: "Drag to select a range and hand it to the AI",
+    /** Opens the checklist of lanes drawn with the notes. */
+    show: "Show",
+    hint: "Drag to select a range and add it to the chat",
     follow: "Follow the playhead",
-    zoomOut: "Zoom out",
-    zoomIn: "Zoom in",
+    zoomOut: "Zoom out (⌘ + scroll)",
+    zoomIn: "Zoom in (⌘ + scroll)",
     fitAll: "Show all",
     attachTitle: "Attach the selection to the chat (Esc to clear)",
-    attach: "Send to AI",
-    copy: "Copy",
-    copyTitle: "Copy the selection (⌘C) — paste it into any song with ⌘V",
+    attach: "Add to chat",
     showKeys: "Show keyboard",
     hideKeys: "Hide keyboard",
     chords: "Chords",
@@ -268,6 +280,8 @@ export const en = {
   },
 
   score: {
+    all: "All",
+    bars: (n: number) => `${n} bars`,
     fewerBars: "Show fewer bars",
     moreBars: "Show more bars",
     renderFailed: (error: string) => `Couldn't draw the score: ${error}`,
@@ -282,6 +296,24 @@ export const en = {
       `Bars ${fromBar}:${fromBeat}–${toBar}:${toBeat}`,
     notes: (n: number) => (n === 1 ? "1 note" : `${n} notes`),
     empty: "empty",
+  },
+
+  /** The launch screen: no song open yet, the chat in the middle. */
+  home: {
+    title: "What shall we make?",
+    placeholder: "Describe a piece to write, or one to find",
+    starters: [
+      "Write an 8-bar lo-fi piano piece",
+      "Find a piano score of Debussy's Clair de lune and import it",
+      "Write a bossa nova accompaniment",
+    ],
+    openMidi: "Open a MIDI file…",
+    recent: "Recent",
+    dropHint: "You can also drop MIDI files anywhere in this window",
+    working: "Claude is working",
+    workingSub: "The song opens here when it's ready",
+    idle: "Open a song to see it here",
+    idleSub: "Pick one from the library, or ask for one in the chat",
   },
 
   chat: {
