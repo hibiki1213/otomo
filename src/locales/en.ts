@@ -360,6 +360,12 @@ export const en = {
     thinking: "Thinking",
     seconds: (n: number) => `${n}s`,
     stopped: "Stopped",
+    loginNeeded: "Claude Code's sign-in has expired.",
+    login: "Sign in again",
+    loginWaiting: "Finish signing in in your browser…",
+    loginOpenAgain: "Browser didn't open?",
+    loginDone: "Signed in.",
+    retry: "Ask again",
     status: { running: "Running", ok: "Done", error: "Failed" },
     /** Pieces of a tool call's one-line summary. */
     quoted: (s: string) => `"${s}"`,

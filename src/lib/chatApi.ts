@@ -71,6 +71,17 @@ export const setConversationModel = (convId: number, model: string | null) =>
 export const setConversationEffort = (convId: number, effort: Effort | null) =>
   invoke<void>("chat_set_effort", { convId, effort });
 
+/** Runs `claude auth login`; false when it was cancelled. Links arrive as `chat://login-url`. */
+export const loginClaude = () => invoke<boolean>("chat_login");
+export const cancelLogin = () => invoke<void>("chat_login_cancel");
+
+/**
+ * Claude Code's ways of saying it isn't signed in: "Failed to authenticate…",
+ * "OAuth token has expired", "Invalid API key · Please run /login"…
+ */
+export const isLoginError = (error: string) =>
+  /authenticat|oauth|not logged in|\/login|invalid api key/i.test(error);
+
 export const sendChat = (args: {
   convId: number | null;
   text: string;

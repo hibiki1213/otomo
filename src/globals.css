@@ -2718,6 +2718,36 @@ body.resizing {
   white-space: pre-wrap;
 }
 
+/* Under an answer that failed on Claude Code's login. */
+.chat-login {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--c-space-2) var(--c-space-3);
+  padding: var(--c-space-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.chat-login-text {
+  flex: 1 1 auto;
+  font-size: var(--c-text-sm);
+  color: var(--text);
+}
+
+.chat-login-actions {
+  display: flex;
+  gap: var(--c-space-2);
+}
+
+.chat-login-error {
+  flex-basis: 100%;
+  font-size: var(--c-text-sm);
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+
 .chat-meta {
   font-size: 10.5px;
   color: var(--text-faint);

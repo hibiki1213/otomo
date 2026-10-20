@@ -105,6 +105,8 @@ pub fn run() {
             chat::chat_delete,
             chat::chat_set_model,
             chat::chat_set_effort,
+            chat::chat_login,
+            chat::chat_login_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -17,9 +17,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -214,22 +214,128 @@ fn short(s: &str, max: usize) -> String {
     t.chars().take(max).collect::<String>() + "…"
 }
 
-/// Where Claude Code is. An app started from the Finder gets a bare PATH, so
-/// the usual install locations are looked at by hand before PATH is.
+/// The PATH to search and to hand the child. An app started from the Finder
+/// gets only `/usr/bin:/bin:…`, without what `.zshrc` adds (nvm, Volta, npm's
+/// global bin…), so the login shell is asked once and its answer goes first.
+/// The npm build of `claude` is `#!/usr/bin/env node`, so this is also how its
+/// node is found.
+fn search_path() -> &'static str {
+    static PATH: OnceLock<String> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        if let Some(login) = login_shell_path() {
+            dirs.extend(std::env::split_paths(&login));
+        }
+        if let Some(own) = std::env::var_os("PATH") {
+            dirs.extend(std::env::split_paths(&own));
+        }
+        let mut seen = HashSet::new();
+        dirs.retain(|d| !d.as_os_str().is_empty() && seen.insert(d.clone()));
+        std::env::join_paths(dirs).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+    })
+}
+
+/// PATH as `$SHELL -ilc` sees it. An interactive shell may print things while
+/// it starts, so the value comes between markers; a shell setup that hangs, or
+/// leaves something holding the pipe open, costs five seconds and no more.
+fn login_shell_path() -> Option<String> {
+    const MARK: &str = "__OTOMO_PATH__";
+    let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
+    let mut child = Command::new(shell)
+        .args(["-ilc", &format!("printf '{MARK}%s{MARK}' \"$PATH\"")])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut out = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            match std::io::Read::read(&mut stdout, &mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => out.extend_from_slice(&buf[..n]),
+            }
+            let text = String::from_utf8_lossy(&out);
+            if let Some((_, rest)) = text.split_once(MARK) {
+                if let Some((path, _)) = rest.split_once(MARK) {
+                    let _ = tx.send(path.to_string());
+                    return;
+                }
+            }
+        }
+    });
+    let path = rx.recv_timeout(std::time::Duration::from_secs(5)).ok();
+    let _ = child.kill();
+    let _ = child.wait();
+    path.filter(|p| !p.is_empty())
+}
+
+/// Where Claude Code is: the official installer's and Homebrew's places
+/// first, then the login shell's PATH, then where npm and friends usually put
+/// it, for people whose shell doesn't add those to PATH.
 fn claude_path() -> Option<PathBuf> {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
     let known = [
-        format!("{home}/.local/bin/claude"),
-        format!("{home}/.claude/local/claude"),
-        "/opt/homebrew/bin/claude".to_string(),
-        "/usr/local/bin/claude".to_string(),
+        home.join(".local/bin/claude"),
+        home.join(".claude/local/claude"),
+        PathBuf::from("/opt/homebrew/bin/claude"),
+        PathBuf::from("/usr/local/bin/claude"),
     ];
-    if let Some(p) = known.iter().map(PathBuf::from).find(|p| p.is_file()) {
+    if let Some(p) = known.into_iter().find(|p| p.is_file()) {
         return Some(p);
     }
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).map(|d| d.join("claude")).find(|p| p.is_file())
-    })
+    if let Some(p) = std::env::split_paths(search_path()).map(|d| d.join("claude")).find(|p| p.is_file()) {
+        return Some(p);
+    }
+    let mut extra = vec![
+        home.join(".npm-global/bin/claude"),
+        home.join(".volta/bin/claude"),
+        home.join(".bun/bin/claude"),
+        home.join(".yarn/bin/claude"),
+    ];
+    if let Ok(versions) = std::fs::read_dir(home.join(".nvm/versions/node")) {
+        let names = versions.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        let dir = home.join(".nvm/versions/node");
+        extra.extend(newest_first(names).into_iter().map(|v| dir.join(v).join("bin/claude")));
+    }
+    extra.into_iter().find(|p| p.is_file())
+}
+
+/// nvm's version folders (`v20.11.1`), newest first by number, so v9 comes
+/// after v20. Anything that isn't a version goes last.
+fn newest_first(mut names: Vec<String>) -> Vec<String> {
+    fn version(name: &str) -> Option<Vec<u64>> {
+        name.strip_prefix('v')?.split('.').map(|n| n.parse().ok()).collect()
+    }
+    names.sort_by(|a, b| version(b).cmp(&version(a)).then_with(|| a.cmp(b)));
+    names
+}
+
+/// The child's PATH: `claude`'s own folder (where an npm install keeps its
+/// node), then the search path.
+fn child_path(claude: &Path) -> String {
+    let mut dirs: Vec<PathBuf> = claude.parent().map(Path::to_path_buf).into_iter().collect();
+    dirs.extend(std::env::split_paths(search_path()));
+    std::env::join_paths(dirs).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// `claude`, ready to run as the app's child: with a PATH it can find node by,
+/// and none of the parent's `CLAUDE*` variables — started from inside a Claude
+/// Code session (as in development), it would otherwise inherit that session's
+/// identity and act as part of it.
+fn claude_command(claude: &Path) -> Command {
+    let mut cmd = Command::new(claude);
+    cmd.env("PATH", child_path(claude));
+    for (k, _) in std::env::vars() {
+        if k.starts_with("CLAUDE") {
+            cmd.env_remove(&k);
+        }
+    }
+    cmd.env("CLAUDE_CODE_ENTRYPOINT", "otomo-chat");
+    cmd
 }
 
 /// English like everything else Claude reads; the reply follows the person.
@@ -274,6 +380,11 @@ impl ChatState {
         db.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
         add_column(&db, "chat_conv", "effort", "TEXT")?;
         add_column(&db, "chat_msg", "effort", "TEXT")?;
+        // Asking the login shell for PATH can take a few seconds; get it done
+        // before the panel needs it.
+        std::thread::spawn(|| {
+            search_path();
+        });
         Ok(Self { db: Mutex::new(db), cwd, data_dir: root, runs: Default::default() })
     }
 
@@ -352,14 +463,20 @@ fn add_message(db: &Connection, conv_id: i64, m: &Message) -> Result<i64, String
 
 /* ---------- commands ---------- */
 
+/// Async so that the first call, which may wait on the login shell for up to
+/// five seconds, doesn't hold up the window.
 #[tauri::command]
-pub fn chat_status() -> ChatStatus {
+pub async fn chat_status() -> ChatStatus {
+    status()
+}
+
+fn status() -> ChatStatus {
     let claude = claude_path();
     let server = crate::mcp_setup::server_path();
     let blocked = if claude.is_none() {
         Some(tr!(
-            "Claude Code が見つかりません。インストールしてログインしてください。",
-            "Claude Code isn't installed. Install it and log in."
+            "Claude Code が見つかりません。ターミナルで `curl -fsSL https://claude.ai/install.sh | bash` を実行してインストールし、`claude` を一度起動してログインしてから、アプリを開き直してください。",
+            "Claude Code wasn't found. Install it by running `curl -fsSL https://claude.ai/install.sh | bash` in Terminal, start `claude` once to log in, then reopen the app."
         ))
     } else if server.is_none() {
         Some(tr!(
@@ -453,6 +570,105 @@ fn stop(chat: &ChatState, conv_id: i64) {
     }
 }
 
+/// The `claude auth login` under way, so it can be cancelled and not started
+/// twice.
+static LOGIN: Mutex<Option<Child>> = Mutex::new(None);
+
+/// How long a sign-in left open in the browser is waited for.
+const LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// Sign Claude Code in again, for when a run fails on an expired login.
+/// `claude auth login` opens the browser itself and exits once the sign-in
+/// comes back; any link it prints goes out as `chat://login-url`, in case the
+/// browser didn't open. Ok(false) means it was cancelled.
+#[tauri::command]
+pub async fn chat_login(app: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || login(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn chat_login_cancel() {
+    if let Some(child) = LOGIN.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        let _ = child.kill();
+    }
+}
+
+fn login(app: &AppHandle) -> Result<bool, String> {
+    let claude = claude_path().ok_or_else(|| status().blocked.unwrap_or_default())?;
+    let output = Arc::new(Mutex::new(String::new()));
+    {
+        let mut slot = LOGIN.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_some() {
+            return Err(tr!("ログインはもう始まっています", "Signing in has already started"));
+        }
+        let mut child = claude_command(&claude)
+            .args(["auth", "login"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| tr!("Claude を起動できませんでした: {e}", "Couldn't start Claude: {e}"))?;
+        let pipes: [Option<Box<dyn std::io::Read + Send>>; 2] = [
+            child.stdout.take().map(|p| Box::new(p) as _),
+            child.stderr.take().map(|p| Box::new(p) as _),
+        ];
+        for pipe in pipes.into_iter().flatten() {
+            let (app, output) = (app.clone(), output.clone());
+            std::thread::spawn(move || {
+                for line in BufReader::new(pipe).lines().map_while(Result::ok) {
+                    if let Some(url) = line.split_whitespace().find(|w| w.starts_with("https://")) {
+                        let _ = app.emit("chat://login-url", url.to_string());
+                    }
+                    let mut out = output.lock().unwrap_or_else(|e| e.into_inner());
+                    out.push_str(&line);
+                    out.push('\n');
+                }
+            });
+        }
+        *slot = Some(child);
+    }
+
+    let started = std::time::Instant::now();
+    let exit = loop {
+        let mut slot = LOGIN.lock().unwrap_or_else(|e| e.into_inner());
+        let child = slot.as_mut().expect("only this function clears it");
+        match child.try_wait() {
+            Ok(Some(exit)) => {
+                *slot = None;
+                break Some(exit);
+            }
+            Ok(None) if started.elapsed() < LOGIN_TIMEOUT => {}
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                *slot = None;
+                break None;
+            }
+        }
+        drop(slot);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    };
+    match exit {
+        Some(exit) if exit.success() => Ok(true),
+        // Killed: Cancel was pressed.
+        Some(exit) if exit.code().is_none() => Ok(false),
+        Some(_) => {
+            let out = output.lock().unwrap_or_else(|e| e.into_inner());
+            Err(if out.trim().is_empty() {
+                tr!("ログインできませんでした", "Couldn't sign in")
+            } else {
+                short(&out, 300)
+            })
+        }
+        None => Err(tr!(
+            "ログインが時間内に終わりませんでした。もう一度お試しください。",
+            "Signing in took too long. Please try again."
+        )),
+    }
+}
+
 /// Ask something. Returns the conversation id as soon as the child is
 /// running; the answer arrives as `chat://…` events and ends with
 /// `chat://done`.
@@ -472,7 +688,7 @@ pub fn chat_send(
     if text.is_empty() && selections.is_empty() {
         return Err(tr!("メッセージが空です", "The message is empty"));
     }
-    let status = chat_status();
+    let status = status();
     if let Some(reason) = status.blocked {
         return Err(reason);
     }
@@ -563,7 +779,7 @@ pub fn chat_send(
         }
     });
 
-    let mut cmd = Command::new(claude);
+    let mut cmd = claude_command(&claude);
     cmd.arg("-p")
         .args(["--output-format", "stream-json", "--include-partial-messages", "--verbose"])
         // No shell and no file access: Otomo, plus the web to look a piece
@@ -589,14 +805,6 @@ pub fn chat_send(
     if let Some(e) = &effort {
         cmd.args(["--effort", e]);
     }
-    // Started from inside a Claude Code session (as in development), the child
-    // would otherwise inherit that session's identity and act as part of it.
-    for (k, _) in std::env::vars() {
-        if k.starts_with("CLAUDE") {
-            cmd.env_remove(&k);
-        }
-    }
-    cmd.env("CLAUDE_CODE_ENTRYPOINT", "otomo-chat");
 
     let mut child = cmd.spawn().map_err(|e| tr!("Claude を起動できませんでした: {e}", "Couldn't start Claude: {e}"))?;
     let mut stdin = child.stdin.take().ok_or("couldn't open stdin")?;
@@ -904,5 +1112,33 @@ mod tests {
         assert!(takes_effort(Some("fable")));
         assert!(!takes_effort(Some("haiku")));
         assert!(!takes_effort(Some("claude-haiku-4-5-20251001")));
+    }
+
+    #[test]
+    fn nvm_versions_go_newest_first_by_number() {
+        let names = ["v9.11.2", "v20.11.1", "default", "v20.9.0", "v18.19.0"].map(String::from).to_vec();
+        assert_eq!(newest_first(names), ["v20.11.1", "v20.9.0", "v18.19.0", "v9.11.2", "default"]);
+    }
+
+    /// Machine-dependent, so run by hand, ideally with the bare environment
+    /// the Finder gives an app:
+    /// `env -i HOME=$HOME SHELL=$SHELL USER=$USER PATH=/usr/bin:/bin:/usr/sbin:/sbin <test binary> --ignored finds_claude_from_a_bare_path --nocapture`
+    #[test]
+    #[ignore]
+    fn finds_claude_from_a_bare_path() {
+        eprintln!("PATH        {:?}", std::env::var("PATH"));
+        eprintln!("search PATH {}", search_path());
+        let claude = claude_path().expect("claude not found");
+        eprintln!("claude      {}", claude.display());
+        eprintln!("child PATH  {}", child_path(&claude));
+        let out = Command::new(&claude)
+            .arg("--version")
+            .env_clear()
+            .env("HOME", std::env::var("HOME").unwrap())
+            .env("PATH", child_path(&claude))
+            .output()
+            .unwrap();
+        eprintln!("--version   {}", String::from_utf8_lossy(&out.stdout).trim());
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     }
 }

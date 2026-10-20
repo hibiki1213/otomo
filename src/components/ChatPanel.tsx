@@ -4,10 +4,13 @@ import ChatMarkdown from "@/components/ChatMarkdown";
 import PanelToggle from "@/components/PanelToggle";
 import {
   EFFORTS,
+  cancelLogin,
   chatStatus,
   deleteConversation,
+  isLoginError,
   listConversations,
   listMessages,
+  loginClaude,
   runningConversations,
   sendChat,
   setConversationEffort,
@@ -625,6 +628,15 @@ export default function ChatPanel({
   if (!open) return toggle;
 
   const shown = activeId != null && live[activeId] ? [...messages, live[activeId]] : messages;
+  // The last answer failed on Claude Code's login: offer to sign in, then to
+  // ask the same thing again.
+  const lastShown = shown[shown.length - 1];
+  const loginFailed = lastShown?.role === "assistant" && !!lastShown.error && isLoginError(lastShown.error);
+  const lastQuestion = [...shown]
+    .reverse()
+    .find((m) => m.role === "user")
+    ?.parts.map((p) => (p.type === "text" ? p.text : ""))
+    .join("");
 
   return (
     <>
@@ -761,6 +773,12 @@ export default function ChatPanel({
                     streaming={m.id === -1 && m.role === "assistant"}
                   />
                 ))}
+                {loginFailed && (
+                  <LoginPrompt
+                    key={lastShown.id}
+                    onRetry={lastQuestion && !busy ? () => void send(lastQuestion, false) : null}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -853,6 +871,87 @@ function AttachmentChip({
             </label>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Under an answer that failed because Claude Code's login ran out: sign in
+ * again from here (the browser opens), then ask the question once more.
+ */
+function LoginPrompt({ onRetry }: { onRetry: (() => void) | null }) {
+  const { t } = useI18n();
+  const [state, setState] = useState<"idle" | "waiting" | "done">("idle");
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (state !== "waiting") return;
+    let off: (() => void) | null = null;
+    let cancelled = false;
+    void import("@tauri-apps/api/event").then(({ listen }) =>
+      listen<string>("chat://login-url", (e) => setUrl(e.payload)).then((un) => {
+        if (cancelled) un();
+        else off = un;
+      })
+    );
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, [state]);
+
+  const login = async () => {
+    setError(null);
+    setUrl(null);
+    setState("waiting");
+    try {
+      setState((await loginClaude()) ? "done" : "idle");
+    } catch (e) {
+      setError(String(e));
+      setState("idle");
+    }
+  };
+
+  const openLink = async (link: string) => {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(link);
+  };
+
+  return (
+    <div className="chat-login">
+      {state === "done" ? (
+        <>
+          <p className="chat-login-text">{t.chat.loginDone}</p>
+          {onRetry && (
+            <button className="chat-btn is-primary" onClick={onRetry}>
+              {t.chat.retry}
+            </button>
+          )}
+        </>
+      ) : state === "waiting" ? (
+        <>
+          <p className="chat-login-text">{t.chat.loginWaiting}</p>
+          <div className="chat-login-actions">
+            {url && (
+              <button className="chat-link" onClick={() => void openLink(url)}>
+                {t.chat.loginOpenAgain}
+              </button>
+            )}
+            <button className="chat-link" onClick={() => void cancelLogin()}>
+              {t.chat.cancel}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="chat-login-text">{t.chat.loginNeeded}</p>
+          <button className="chat-btn is-primary" onClick={() => void login()}>
+            {t.chat.login}
+          </button>
+          {error && <p className="chat-login-error">{error}</p>}
+        </>
       )}
     </div>
   );
