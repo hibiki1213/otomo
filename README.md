@@ -22,9 +22,12 @@
   <img alt="Built with Tauri" src="https://img.shields.io/badge/built%20with-Tauri%202-24c8db">
 </p>
 
-<!-- TODO(launch): replace with the 30–60 s demo (ask → bars fill in → preview → Apply → playback). -->
 <p align="center">
-  <img src="docs/media/demo.gif" width="800" alt="Asking Claude for a bass line, previewing the pending bars, and applying them">
+  <img src="docs/media/demo.gif" width="800" alt="Asking Claude for Debussy's Clair de Lune: it imports a public-domain score, plays it, then adds rubato as a pending edit">
+</p>
+
+<p align="center">
+  Ask for Debussy's Clair de Lune and Claude finds a public-domain score, imports it and plays it. Ask it to play more like a person and it shapes the tempo, as a pending edit you keep only if you press <b>Apply</b>.
 </p>
 
 ## Features

@@ -11,7 +11,9 @@
 
 ![MIT License](https://img.shields.io/badge/license-MIT-blue)![macOS 11+](https://img.shields.io/badge/macOS-11%2B-lightgrey)![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)
 
-![Claude にベースラインを頼み、保留中の小節を試聴して適用するところ](docs/media/demo.gif)
+![「ドビュッシーの月の光を作って」と頼むと、Claude が IMSLP で楽譜を探して取り込み、テンポの揺れと強弱を付けていくところ](docs/media/demo-ja.gif)
+
+「ドビュッシーの月の光を作って」と頼むと、Claude が IMSLP で楽譜を探して取り込み、テンポの揺れや強弱を付けていきます。変更は保留中の編集として届き、**適用**を押すまで曲は変わりません。
 
 ## 機能
 
