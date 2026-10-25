@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # The app is macOS-only (AudioUnit, CoreAudio), so it is built and tested there.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # rust-toolchain ships from branches, not releases: this is the stable
+      # branch's commit, which Dependabot does not bump; update it by hand.
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      # Type-checks the UI, and produces the dist/ the app embeds at compile time.
+      - run: pnpm build
+
+      # Stages otomo-mcp as the app's sidecar, and fetches the SoundFont the
+      # bundle ships with; tauri-build fails without either (or the licenses).
+      - run: pnpm mcp:build
+      - run: pnpm sounds
+
+      # The license notices the bundle ships; also fails on a dependency under
+      # a license src-tauri/about.toml does not accept.
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-about
+      - run: pnpm run licenses
+
+      - run: cargo test --workspace
+        working-directory: src-tauri

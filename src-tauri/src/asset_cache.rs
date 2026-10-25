@@ -1,4 +1,5 @@
-//! Disk cache for large remote audio assets (SoundFont, piano samples).
+//! Disk cache for large remote audio assets (the Web Audio engine's SoundFont,
+//! piano samples).
 //!
 //! The webview fetches the asset over HTTP the first time and hands the bytes
 //! to `asset_cache_put`; later loads are served by `asset_cache_get` without
@@ -21,19 +22,13 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     hash
 }
 
-pub(crate) fn cache_path(app: &AppHandle, key: &str) -> Result<PathBuf, String> {
+fn cache_path(app: &AppHandle, key: &str) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_cache_dir()
         .map_err(|e| e.to_string())?
         .join("assets");
     Ok(dir.join(format!("{:016x}.bin", fnv1a64(key.as_bytes()))))
-}
-
-/// Whether an asset is cached, without transferring it.
-#[tauri::command]
-pub async fn asset_cache_has(app: AppHandle, key: String) -> Result<bool, String> {
-    Ok(tokio::fs::try_exists(cache_path(&app, &key)?).await.unwrap_or(false))
 }
 
 /// Returns the cached bytes, or an empty body on a miss.

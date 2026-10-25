@@ -8,11 +8,13 @@ mod export;
 mod i18n;
 mod instruments;
 mod library;
+mod menu;
 mod mcp_setup;
 mod paste;
 mod pdf;
 mod songs;
 mod spatial;
+mod updates;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,6 +22,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(library::LibraryState::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -32,6 +36,7 @@ pub fn run() {
             app.manage(songs::SongLibrary::open(app.handle())?);
             app.manage(chat::ChatState::open(app.handle())?);
             control::start(app.handle());
+            menu::install(app.handle())?;
             // Without an audio device the app still runs (web engine fallback).
             match engine::start() {
                 Ok(handle) => {
@@ -42,7 +47,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            asset_cache::asset_cache_has,
             asset_cache::asset_cache_get,
             asset_cache::asset_cache_put,
             engine::engine_load_soundfont,
@@ -67,6 +71,7 @@ pub fn run() {
             export::export_write_text,
             i18n::system_language,
             i18n::set_language,
+            updates::update_blocked,
             library::library_list,
             library::library_install,
             library::library_remove,

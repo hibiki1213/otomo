@@ -1,0 +1,30 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share what you made with Otomo. English or Japanese, whichever is easier for you. 日本語でも大丈夫です。
+
+        Only post music that is your own or in the public domain.
+        投稿できるのは、自作かパブリックドメインの曲だけです。
+
+  - type: textarea
+    id: piece
+    attributes:
+      label: What you made
+      description: A recording, the MusicXML or MIDI file, a screenshot, a link.
+    validations:
+      required: true
+
+  - type: textarea
+    id: how
+    attributes:
+      label: How you made it
+      description: What you asked Claude, what you changed by hand, which instruments and venue you used.
+
+  - type: checkboxes
+    id: rights
+    attributes:
+      label: Rights
+      options:
+        - label: This is my own music, or it is in the public domain.
+          required: true

@@ -52,12 +52,31 @@
     "category": "Music",
     "copyright": "Copyright © 2026 Hibiki Kawabe",
     "license": "MIT",
-    "shortDescription": "MIDI player",
+    "shortDescription": "Open-source music making with your Claude subscription",
     "macOS": {
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "11.0",
+      "dmg": {
+        "background": "dmg/background.tiff",
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 170, "y": 150 },
+        "applicationFolderPosition": { "x": 490, "y": 150 }
+      }
     },
     "externalBin": [
       "binaries/otomo-mcp"
-    ]
+    ],
+    "resources": {
+      "resources/GeneralUser.sf2": "GeneralUser.sf2",
+      "resources/GeneralUser-LICENSE.txt": "GeneralUser-LICENSE.txt",
+      "resources/THIRD_PARTY_LICENSES.html": "THIRD_PARTY_LICENSES.html"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVDRDJEOEJCNzg4NEIxNDYKUldSR3NZUjR1OWpTWEFrQnVRSzZLem9maEJWSVhoazFZWHIzUkYxem1wU0FtcG0xdnVjdS9MRmEK",
+      "endpoints": [
+        "https://github.com/hibiki1213/otomo/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

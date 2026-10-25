@@ -61,6 +61,42 @@ export const ja: Messages = {
     remove: "ライブラリから削除",
   },
 
+  settings: {
+    title: "設定",
+    open: "設定 (⌘,)",
+    updates: "アップデート",
+    licenses: "ライセンス",
+    showLicenses: "サードパーティライセンス",
+    updateWaiting: "アップデートの準備ができています",
+  },
+
+  updates: {
+    version: (v) => `Otomo ${v}`,
+    check: "アップデートを確認",
+    checking: "確認中…",
+    latest: (v) => `Otomo ${v} は最新バージョンです。`,
+    checkFailed: "アップデートを確認できませんでした。ネットワークを確認して、もう一度お試しください。",
+    devBuild: "開発版ではアップデートを確認しません。",
+    availableTitle: "新しいバージョンがあります",
+    available: (v, current) => `Otomo ${v} が利用できます。現在のバージョンは ${current} です。`,
+    later: "あとで",
+    update: "今すぐ更新",
+    viewRelease: "GitHub で見る",
+    downloadingTitle: "アップデートをダウンロード中…",
+    downloaded: (mb, totalMb) => (totalMb ? `${mb} / ${totalMb} MB` : `${mb} MB`),
+    hideWhileDownloading: "隠す",
+    readyTitle: "アップデートの準備ができました",
+    ready: (v) => `Otomo を再起動すると ${v} になります。`,
+    busy: "再生中か、Claude が作業中です。今すぐ再起動しなくても、次に Otomo を開いたときに新しいバージョンになります。",
+    restart: "再起動して更新",
+    blockedTitle: "この場所からはアップデートできません",
+    blocked:
+      "この Otomo はディスクイメージ、またはダウンロードフォルダから直接開かれているため、置き換えられません。Otomo をアプリケーションフォルダに移し、そこから開いてもう一度確認してください。",
+    failedTitle: "アップデートを完了できませんでした",
+    failed: "Otomo は変更されていません。時間をおいてもう一度試すか、GitHub から新しいバージョンをダウンロードしてください。",
+    openDownload: "ダウンロードページを開く",
+  },
+
   connection: {
     connect: "Claude と接続",
     connected: "Claude と接続済み",
@@ -125,6 +161,8 @@ export const ja: Messages = {
   },
 
   player: {
+    soundsMissing:
+      "標準の楽器音を読み込めなかったため、一部のトラックは鳴りません。Otomo をインストールし直すと直るはずです。",
     loadingSounds: "楽器の音源を読み込んでいます…",
     loadFailed: "このファイルを読み込めませんでした。MIDI 形式と音源のダウンロード状況をご確認ください。",
     tracks: (n) => `トラック · ${n}`,
@@ -346,6 +384,7 @@ export const ja: Messages = {
     thinking: "考えています",
     seconds: (n) => `${n}秒`,
     stopped: "止めました",
+    checkAgain: "もう一度確認",
     loginNeeded: "Claude Code のログインが切れています。",
     login: "ログインし直す",
     loginWaiting: "ブラウザでログインを済ませてください…",

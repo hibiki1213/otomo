@@ -66,6 +66,42 @@ export const en = {
     remove: "Remove from Library",
   },
 
+  settings: {
+    title: "Settings",
+    open: "Settings (⌘,)",
+    updates: "Updates",
+    licenses: "Licenses",
+    showLicenses: "Third-Party Licenses",
+    updateWaiting: "An update is ready",
+  },
+
+  updates: {
+    version: (v: string) => `Otomo ${v}`,
+    check: "Check for Updates",
+    checking: "Checking…",
+    latest: (v: string) => `Otomo ${v} is the latest version.`,
+    checkFailed: "Couldn't check for updates. Check your connection and try again.",
+    devBuild: "Development builds don't check for updates.",
+    availableTitle: "A new version is available",
+    available: (v: string, current: string) => `Otomo ${v} is available. You have ${current}.`,
+    later: "Later",
+    update: "Update Now",
+    viewRelease: "View on GitHub",
+    downloadingTitle: "Downloading the update…",
+    downloaded: (mb: string, totalMb: string | null) => (totalMb ? `${mb} of ${totalMb} MB` : `${mb} MB`),
+    hideWhileDownloading: "Hide",
+    readyTitle: "Ready to update",
+    ready: (v: string) => `Restart Otomo to start using ${v}.`,
+    busy: "Otomo is playing or Claude is working. There's no need to restart now: Otomo opens as the new version next time.",
+    restart: "Restart to Update",
+    blockedTitle: "Otomo can't update itself here",
+    blocked:
+      "This copy of Otomo is running from the disk image or straight out of Downloads, where it can't be replaced. Move Otomo to the Applications folder, open it from there, and check again.",
+    failedTitle: "The update didn't finish",
+    failed: "Otomo is unchanged. You can try again later, or download the new version from GitHub.",
+    openDownload: "Open the download page",
+  },
+
   connection: {
     connect: "Connect to Claude",
     connected: "Connected to Claude",
@@ -131,6 +167,8 @@ export const en = {
   },
 
   player: {
+    soundsMissing:
+      "The standard instrument sounds couldn't be loaded, so some tracks are silent. Reinstalling Otomo should fix this.",
     loadingSounds: "Loading instrument sounds…",
     loadFailed: "Couldn't load this file. Check that it is a MIDI file and that its sounds have downloaded.",
     tracks: (n: number) => `Tracks · ${n}`,
@@ -360,6 +398,7 @@ export const en = {
     thinking: "Thinking",
     seconds: (n: number) => `${n}s`,
     stopped: "Stopped",
+    checkAgain: "Check again",
     loginNeeded: "Claude Code's sign-in has expired.",
     login: "Sign in again",
     loginWaiting: "Finish signing in in your browser…",

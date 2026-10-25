@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ensureAssetCached, isTauri } from "./assetCache";
+import { isTauri } from "./assetCache";
 import {
-  SF2_URL,
   parseSong,
   type NoteEvent,
   type PlaybackEngine,
@@ -65,13 +64,13 @@ function encodeSong(info: SongInfo, events: RawChannelEvent[]): Uint8Array {
 
 let soundfontReady: Promise<void> | null = null;
 
-/** Download (first run only) and load the SoundFont into the Rust synth. */
+/**
+ * Load the bundled SoundFont into the Rust synth, once. A failure is
+ * forgotten, so the next song tries again.
+ */
 function ensureSoundfont(): Promise<void> {
   if (!soundfontReady) {
-    soundfontReady = (async () => {
-      const key = await ensureAssetCached(SF2_URL);
-      await invoke("engine_load_soundfont", { key });
-    })().catch((e) => {
+    soundfontReady = invoke<void>("engine_load_soundfont").catch((e) => {
       soundfontReady = null;
       throw e;
     });
@@ -96,6 +95,7 @@ export class RustEngine implements PlaybackEngine {
   onTick?: (position: number) => void;
   onEnd?: () => void;
   onTrackProgramChanged?: (trackIndex: number, program: number) => void;
+  onSoundsMissing?: () => void;
 
   private notes: NoteEvent[] = [];
   private lastPos = 0;
@@ -114,13 +114,22 @@ export class RustEngine implements PlaybackEngine {
     await invoke("engine_stop").catch(() => undefined);
 
     const { info, channelEvents } = await parseSong(buffer, fileName);
-    await ensureSoundfont();
+    // Without the SoundFont the song still opens: it can be read, edited and
+    // played through any sample-library instruments, and the rest is silent.
+    const sounds = await ensureSoundfont().then(
+      () => true,
+      (e) => {
+        console.warn("default SoundFont unavailable", e);
+        return false;
+      }
+    );
     await invoke("engine_load_song", encodeSong(info, channelEvents));
 
     this.duration = info.duration;
     this.notes = info.notes;
     this.lastPos = 0;
     this.setState("ready");
+    if (!sounds) this.onSoundsMissing?.();
     return info;
   }
 

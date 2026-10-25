@@ -258,15 +258,26 @@ export default function ChatPanel({
     }
   }, []);
 
+  const recheck = useCallback(() => void chatStatus().then(setStatus), []);
+
   useEffect(() => {
     if (!libraryAvailable()) return;
-    void chatStatus().then(setStatus);
+    recheck();
     void reloadConvs();
     void runningConversations().then((ids) => {
       setRunning(new Set(ids));
       setLive(Object.fromEntries(ids.map((id) => [id, emptyAssistant()])));
     });
-  }, [reloadConvs]);
+  }, [reloadConvs, recheck]);
+
+  // Claude Code installed while the panel said it was missing: notice it when
+  // the person comes back from Terminal, without a restart.
+  const blocked = !!status?.blocked;
+  useEffect(() => {
+    if (!blocked) return;
+    window.addEventListener("focus", recheck);
+    return () => window.removeEventListener("focus", recheck);
+  }, [blocked, recheck]);
 
   useEffect(() => {
     try {
@@ -604,6 +615,9 @@ export default function ChatPanel({
           <div className="home-blocked">
             <p className="home-blocked-title">{t.chat.unavailable}</p>
             <p className="home-blocked-desc">{status.blocked}</p>
+            <button className="chat-btn" onClick={recheck}>
+              {t.chat.checkAgain}
+            </button>
           </div>
         ) : (
           <>
@@ -746,6 +760,9 @@ export default function ChatPanel({
               <div className="chat-empty">
                 <p className="chat-empty-title">{t.chat.unavailable}</p>
                 <p className="chat-empty-desc">{status.blocked}</p>
+                <button className="chat-btn" onClick={recheck}>
+                  {t.chat.checkAgain}
+                </button>
               </div>
             ) : shown.length === 0 ? (
               <div className="chat-empty">

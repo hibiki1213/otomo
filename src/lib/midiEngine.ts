@@ -19,9 +19,13 @@ import {
  * Provides much higher quality samples than the MusyngKite kit for non-piano
  * instruments. Fetched once and parsed; subsequent track instances reuse the
  * parsed SoundFont2 via the module-level cache below.
+ *
+ * The native engine reads the copy bundled with the app instead; this one is
+ * for the Web Audio engine. Pinned to the same commit (v1.471) as
+ * `scripts/fetch-soundfont.sh`, so both play the same sounds.
  */
 export const SF2_URL =
-  "https://raw.githubusercontent.com/ad-si/GeneralUser/master/GeneralUser.sf2";
+  "https://raw.githubusercontent.com/ad-si/GeneralUser/d637ee5c4145b0bb1b49903c5dfb3b564d171704/GeneralUser.sf2";
 
 // SF2 generator IDs we care about (from the SF2.04 spec). Listed here rather
 // than imported because the soundfont2 library's enum is types-only.
@@ -770,6 +774,11 @@ export interface PlaybackEngine {
   onTick?: (position: number) => void;
   onEnd?: () => void;
   onTrackProgramChanged?: (trackIndex: number, program: number) => void;
+  /**
+   * The song loaded, but the default SoundFont couldn't be, so tracks that use
+   * it are silent.
+   */
+  onSoundsMissing?: () => void;
   load(buffer: ArrayBuffer, fileName: string): Promise<SongInfo>;
   play(): Promise<void>;
   pause(): Promise<void>;

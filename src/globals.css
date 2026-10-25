@@ -491,36 +491,85 @@ button:focus-visible,
   padding: 5px 2px 0;
 }
 
-/* ---------- Language ---------- */
-/* Language and appearance, side by side at the foot of the sidebar. */
-.sidebar-prefs {
+/* ---------- Settings ---------- */
+/* The way into Settings, alone at the foot of the sidebar. */
+.sidebar-foot {
   flex: none;
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 12px 10px;
+  padding: 0 8px 8px;
 }
 
-.lang-select {
-  flex: none;
+.sidebar-settings {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 11px;
+  gap: 7px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  font-size: 12px;
   color: var(--text-faint);
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.lang-select select {
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: none;
-  padding: 2px 0;
-  cursor: pointer;
-}
-
-.lang-select:hover {
+.sidebar-settings:hover {
+  background: var(--hover);
   color: var(--text-dim);
+}
+
+/* An update is installed and waits for a restart. */
+.sidebar-settings-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.settings-modal {
+  width: min(480px, 100%);
+}
+
+.settings-rows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 48px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.settings-row:first-child {
+  border-top: none;
+}
+
+.settings-label {
+  flex: none;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.settings-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-value {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.settings-control .btn-ghost:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* ---------- Content pane ----------
@@ -2332,6 +2381,74 @@ body.resizing-rows {
   font-size: 12px;
 }
 
+/* ---------- Update ---------- */
+.update-modal {
+  width: min(460px, 100%);
+}
+
+.update-notes {
+  max-height: 240px;
+  overflow: auto;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  font-size: 12px;
+}
+
+.update-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.update-error {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+  word-break: break-word;
+}
+
+.update-progress {
+  position: relative;
+  height: 6px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--panel-3);
+}
+
+.update-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+/* No size from the server: a band sweeping across instead of a fill. */
+.update-progress.is-indeterminate span {
+  width: 30%;
+  animation: update-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes update-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
 .lib-list {
   list-style: none;
   display: flex;
@@ -2981,6 +3098,13 @@ body.resizing {
   flex-direction: column;
   gap: var(--c-space-2);
   padding: var(--c-space-5) var(--c-space-1) 0;
+}
+
+/* "Check again", under why the panel can't be used yet. */
+.chat-empty .chat-btn,
+.home-blocked .chat-btn {
+  align-self: flex-start;
+  margin-top: var(--c-space-2);
 }
 
 .chat-empty-title {

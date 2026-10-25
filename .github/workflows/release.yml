@@ -1,0 +1,201 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds a Developer ID signed, notarized DMG and
+# the in-app updater's files, and attaches them to a draft GitHub Release, to
+# be reviewed and published by hand. Publishing is what ships the update:
+# installed copies read latest.json from the latest published release.
+# The tag's annotation (git tag -a) becomes the notes the update dialog shows.
+# Running it manually builds the same files as a workflow artifact only.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  APPLE_SIGNING_IDENTITY: "Developer ID Application: hibiki kawabe (4N63Y8H399)"
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    # The signing secrets live in this environment, which (in the repository
+    # settings) admits only v* tags and main, and waits for the maintainer's
+    # approval before the job starts. Other workflows never see the keys.
+    environment: release
+    # Apple usually notarizes in minutes, but has taken hours on occasion.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          app_version=$(node -p 'require("./src-tauri/tauri.conf.json").version')
+          if [ "${GITHUB_REF_NAME}" != "v${app_version}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match tauri.conf.json version ${app_version}"
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+
+      # No dependency or build caches here: a cache another run wrote would
+      # end up inside a signed, notarized app.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      # rust-toolchain ships from branches, not releases: this is the stable
+      # branch's commit, which Dependabot does not bump; update it by hand.
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-about
+
+      - run: pnpm install --frozen-lockfile
+
+      # A throwaway keychain holding the Developer ID identity and Apple's G2
+      # intermediate, which the .p12 does not carry, so codesign can build the
+      # chain. The partition list lets codesign use the key without a prompt.
+      - name: Import the signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -base64 32)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+
+          curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" \
+            https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain"
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" \
+            $(security list-keychains -d user | tr -d '"')
+
+          security find-identity -v -p codesigning "$keychain" \
+            | grep -F "$APPLE_SIGNING_IDENTITY"
+
+      - name: Write the App Store Connect API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+
+      # Tauri signs the app and its otomo-mcp sidecar with the hardened
+      # runtime, then notarizes and staples the .app before making the DMG.
+      # The release config adds the updater's .app.tar.gz, signed with the
+      # updater key whose public half is in tauri.conf.json.
+      - name: Build, sign and notarize the app
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm app:build --config src-tauri/tauri.release.conf.json
+
+      # Tauri notarizes only the .app, so the DMG goes to Apple on its own;
+      # a stapled DMG opens without a Gatekeeper check over the network.
+      - name: Notarize and staple the DMG
+        id: dmg
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          dmg=$(ls src-tauri/target/release/bundle/dmg/*.dmg)
+          xcrun notarytool submit "$dmg" --wait --timeout 90m \
+            --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
+            | tee "$RUNNER_TEMP/notarize.log"
+          grep -q 'status: Accepted' "$RUNNER_TEMP/notarize.log"
+          xcrun stapler staple "$dmg"
+          echo "path=$dmg" >> "$GITHUB_OUTPUT"
+
+      # The updater's archive under a versioned name, and latest.json pointing
+      # at it where this release will serve it.
+      - name: Prepare the updater files
+        id: updater
+        run: |
+          version=$(node -p 'require("./src-tauri/tauri.conf.json").version')
+          [ "$(uname -m)" = arm64 ] || { echo "::error::expected an Apple silicon runner"; exit 1; }
+          bundle=src-tauri/target/release/bundle/macos
+          out="$RUNNER_TEMP/updater"
+          mkdir -p "$out"
+          archive="Otomo_${version}_aarch64.app.tar.gz"
+          cp "$bundle/Otomo.app.tar.gz" "$out/$archive"
+
+          # actions/checkout leaves the tag lightweight; fetch its annotation.
+          : > "$out/notes.md"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            git fetch --force --depth=1 origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+            git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > "$out/notes.md"
+          fi
+
+          node scripts/updater-manifest.mjs --version "$version" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/v$version/$archive" \
+            --signature "$bundle/Otomo.app.tar.gz.sig" \
+            --notes "$out/notes.md" --out "$out/latest.json"
+          cat "$out/latest.json"
+          echo "archive=$out/$archive" >> "$GITHUB_OUTPUT"
+          echo "manifest=$out/latest.json" >> "$GITHUB_OUTPUT"
+
+      - name: Verify with Gatekeeper
+        run: |
+          dmg="${{ steps.dmg.outputs.path }}"
+          spctl -a -vv -t open --context context:primary-signature "$dmg"
+          mount=$(hdiutil attach -nobrowse -readonly "$dmg" | awk -F'\t' '/\/Volumes\//{print $NF}')
+          spctl -a -vv -t exec "$mount/Otomo.app"
+          codesign --verify --deep --strict "$mount/Otomo.app"
+          hdiutil detach "$mount"
+
+          # What the updater swaps in must be the same notarized, stapled app.
+          unpacked="$RUNNER_TEMP/unpacked"
+          mkdir -p "$unpacked"
+          tar -xzf "${{ steps.updater.outputs.archive }}" -C "$unpacked"
+          xcrun stapler validate "$unpacked/Otomo.app"
+          spctl -a -vv -t exec "$unpacked/Otomo.app"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Otomo-macos
+          path: |
+            ${{ steps.dmg.outputs.path }}
+            ${{ steps.updater.outputs.archive }}
+            ${{ steps.updater.outputs.manifest }}
+          if-no-files-found: error
+
+      - name: Attach the files to a draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "${{ steps.dmg.outputs.path }}" \
+            "${{ steps.updater.outputs.archive }}" \
+            "${{ steps.updater.outputs.manifest }}" \
+            --draft --verify-tag --generate-notes --title "Otomo $GITHUB_REF_NAME"
+
+      - name: Remove the keychain and API key
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8"

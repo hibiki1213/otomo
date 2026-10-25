@@ -38,8 +38,12 @@ export default function ClaudeConnection() {
     }
   }, []);
 
+  // Claude Desktop installed, or the app moved to Applications, while this
+  // was showing why it couldn't connect: notice it on coming back.
   useEffect(() => {
     void refresh();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
   }, [refresh]);
 
   const run = async (command: "mcp_connect" | "mcp_disconnect", after: string) => {
@@ -83,7 +87,7 @@ export default function ClaudeConnection() {
       {status.connected && !busy && (
         <p className="connect-note">{t.connection.clickToDisconnect}</p>
       )}
-      {status.stale && !busy && (
+      {status.stale && !status.blocked && !busy && (
         <p className="connect-note">{t.connection.stale}</p>
       )}
       {error && <p className="connect-error">{error}</p>}

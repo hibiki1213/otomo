@@ -56,6 +56,8 @@ usvg = "0.47.0"
 ttf-parser = "0.25.1"
 wuff = { version = "0.2.9", default-features = false, features = ["brotli"] }
 base64 = "0.22.1"
+tauri-plugin-updater = "~2.12"
+tauri-plugin-process = "~2.3.1"
 
 # The synth runs on the realtime audio thread; unoptimized it can barely keep
 # up with dense arrangements, so optimize it (and the engine) even in dev.

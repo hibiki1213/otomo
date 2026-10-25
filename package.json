@@ -10,14 +10,18 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri",
-    "app:dev": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
-    "app:build": "pnpm mcp:build && PATH=\"$HOME/.cargo/bin:$PATH\" tauri build",
-    "mcp:build": "./scripts/build-mcp.sh"
+    "app:dev": "pnpm sounds && pnpm run licenses --if-missing && PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
+    "app:build": "pnpm mcp:build && pnpm sounds && pnpm run licenses && PATH=\"$HOME/.cargo/bin:$PATH\" tauri build",
+    "mcp:build": "./scripts/build-mcp.sh",
+    "sounds": "./scripts/fetch-soundfont.sh",
+    "licenses": "node scripts/generate-licenses.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-opener": "^2.5.5",
+    "@tauri-apps/plugin-process": "~2.3.1",
+    "@tauri-apps/plugin-updater": "~2.12.0",
     "@tonejs/midi": "2.0.28",
     "midi-file": "^1.2.4",
     "react": "19.0.0",

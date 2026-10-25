@@ -67,6 +67,7 @@ pub fn system_language() -> String {
 }
 
 #[tauri::command]
-pub fn set_language(lang: String) {
+pub fn set_language(app: tauri::AppHandle, lang: String) {
     ENGLISH.store(lang != "ja", Ordering::Relaxed);
+    crate::menu::relabel(&app);
 }

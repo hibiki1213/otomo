@@ -43,22 +43,6 @@ async function writeCache(url: string, data: ArrayBuffer): Promise<void> {
   }
 }
 
-/**
- * Make sure `url` is on disk (downloading it if needed) and return its cache
- * key, for assets that Rust reads directly. Tauri only.
- */
-export async function ensureAssetCached(url: string): Promise<string> {
-  const key = cacheKey(url);
-  if (await invokeRaw<boolean>("asset_cache_has", { key })) return key;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  const buf = await res.arrayBuffer();
-  await invokeRaw<void>("asset_cache_put", new Uint8Array(buf), {
-    "x-asset-key": key,
-  });
-  return key;
-}
-
 /** Fetch a remote binary asset, serving from / populating the disk cache. */
 export async function fetchCachedArrayBuffer(url: string): Promise<ArrayBuffer> {
   if (isTauri()) {

@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import ClaudeConnection from "@/components/ClaudeConnection";
-import LanguageSelect from "@/components/LanguageSelect";
-import ThemeSelect from "@/components/ThemeSelect";
 import { useI18n } from "@/lib/i18n";
 import type { Messages } from "@/locales/en";
 import type { SongRecord } from "@/lib/songsApi";
 import type { SongLibrary } from "@/lib/useSongLibrary";
+import { useUpdater } from "@/lib/updater";
 
 /** "3 min ago", "Yesterday", "Mar 4" — short enough for a sidebar row. */
 function whenLabel(unix: number | null, t: Messages): string {
@@ -41,6 +40,7 @@ export default function Sidebar({
   onResize,
   onExport,
   onHistory,
+  onOpenSettings,
 }: {
   library: SongLibrary;
   /** Whether the current song is sounding, for the row indicator. */
@@ -50,8 +50,11 @@ export default function Sidebar({
   onExport: (song: SongRecord) => void;
   /** Undo (back) or redo a song's last change. */
   onHistory: (songId: number, back: boolean) => void;
+  onOpenSettings: () => void;
 }) {
   const { t } = useI18n();
+  // Installed and waiting for a restart: worth a mark on the way to Settings.
+  const updateReady = useUpdater().status.phase === "ready";
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
 
@@ -198,9 +201,25 @@ export default function Sidebar({
       </nav>
 
       <ClaudeConnection />
-      <div className="sidebar-prefs">
-        <LanguageSelect />
-        <ThemeSelect />
+      <div className="sidebar-foot">
+        <button className="sidebar-settings" onClick={onOpenSettings} title={t.settings.open}>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span>{t.settings.title}</span>
+          {updateReady && <span className="sidebar-settings-dot" role="img" aria-label={t.settings.updateWaiting} />}
+        </button>
       </div>
 
       {menu && (

@@ -32,9 +32,8 @@ use cpal::{FromSample, SizedSample};
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
 use serde::Serialize;
 use tauri::ipc::{InvokeBody, Request};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
-use crate::asset_cache;
 use crate::instruments::{
     sfz::{SfzInstrument, SfzSplit},
     InstrumentChoice,
@@ -707,10 +706,11 @@ fn spawn_monitor(shared: Arc<Shared>) {
 
 /* ---------- commands ---------- */
 
-/// Load the SoundFont previously stored in the asset cache under `key`.
+/// Load the General MIDI SoundFont the app ships with (GeneralUser GS, put in
+/// the bundle's resources by `scripts/fetch-soundfont.sh`).
 #[tauri::command]
-pub async fn engine_load_soundfont(app: AppHandle, handle: State<'_, EngineHandle>, key: String) -> Result<(), String> {
-    let path = asset_cache::cache_path(&app, &key)?;
+pub async fn engine_load_soundfont(app: AppHandle, handle: State<'_, EngineHandle>) -> Result<(), String> {
+    let path = app.path().resource_dir().map_err(|e| e.to_string())?.join("GeneralUser.sf2");
     let sample_rate = handle.sample_rate;
     let synth = tauri::async_runtime::spawn_blocking(move || {
         let mut reader = BufReader::new(File::open(&path).map_err(|e| e.to_string())?);

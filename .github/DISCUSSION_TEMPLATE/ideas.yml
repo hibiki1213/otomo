@@ -1,0 +1,26 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Japanese, whichever is easier for you. 日本語でも大丈夫です。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The music you were making and where Otomo got in the way. This matters more than the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you imagine it working. Rough is fine.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today instead

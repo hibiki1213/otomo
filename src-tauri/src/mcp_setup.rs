@@ -67,6 +67,33 @@ pub(crate) fn server_path() -> Option<PathBuf> {
     None
 }
 
+/// What to say when the server isn't beside the app. In development it just
+/// hasn't been built; in a release it can only be a damaged install.
+pub(crate) fn server_missing() -> String {
+    if cfg!(debug_assertions) {
+        tr!(
+            "MCP サーバーがまだビルドされていません。`pnpm mcp:build` を実行してください。",
+            "The MCP server hasn't been built yet. Run `pnpm mcp:build`."
+        )
+    } else {
+        tr!(
+            "アプリの中の MCP サーバーが見つかりません。Otomo をインストールし直してください。",
+            "The MCP server inside the app is missing. Please reinstall Otomo."
+        )
+    }
+}
+
+/// Whether the app is running from somewhere that won't last: the disk image
+/// it came on, or the random folder macOS copies a downloaded app into until
+/// it is moved (App Translocation). A server path recorded from there stops
+/// working once the disk image is ejected or the app is next opened.
+fn running_from_temporary_place() -> bool {
+    std::env::current_exe().is_ok_and(|exe| {
+        let exe = exe.to_string_lossy();
+        exe.starts_with("/Volumes/") || exe.contains("/AppTranslocation/")
+    })
+}
+
 /// Read the configuration, or say why it cannot be read.
 ///
 /// A file that exists but does not parse is left alone: it is not ours to
@@ -115,16 +142,18 @@ pub fn mcp_status(_app: AppHandle) -> Result<McpStatus, String> {
         }
     }
     if status.blocked.is_none() {
-        if !status.claude_found {
+        if running_from_temporary_place() {
+            status.blocked = Some(tr!(
+                "Otomo がディスクイメージか一時的な場所から開かれています。アプリケーションフォルダに移してから開き直すと、Claude Desktop とつなげます。",
+                "Otomo is running from its disk image or a temporary location. Move it to the Applications folder and open it again to connect Claude Desktop."
+            ));
+        } else if !status.claude_found {
             status.blocked = Some(tr!(
                 "Claude Desktop が見つかりません。インストールして一度起動してください。",
                 "Claude Desktop isn't installed. Install it and open it once."
             ));
         } else if server.is_none() {
-            status.blocked = Some(tr!(
-                "MCP サーバーがまだビルドされていません。`pnpm mcp:build` を実行してください。",
-                "The MCP server hasn't been built yet. Run `pnpm mcp:build`."
-            ));
+            status.blocked = Some(server_missing());
         }
     }
     Ok(status)
@@ -134,13 +163,7 @@ pub fn mcp_status(_app: AppHandle) -> Result<McpStatus, String> {
 #[tauri::command]
 pub fn mcp_connect(app: AppHandle) -> Result<McpStatus, String> {
     let path = config_path()?;
-    let server = server_path()
-        .ok_or_else(|| {
-            tr!(
-                "MCP サーバーが見つかりません。`pnpm mcp:build` を実行してください。",
-                "The MCP server is missing. Run `pnpm mcp:build`."
-            )
-        })?;
+    let server = server_path().ok_or_else(server_missing)?;
     if let Some(reason) = mcp_status(app.clone())?.blocked {
         return Err(reason);
     }

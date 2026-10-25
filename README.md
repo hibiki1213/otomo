@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <img alt="macOS 11+" src="https://img.shields.io/badge/macOS-11%2B-lightgrey">
+  <img alt="macOS 11+, Apple silicon" src="https://img.shields.io/badge/macOS-11%2B%20%C2%B7%20Apple%20silicon-lightgrey">
   <img alt="Built with Tauri" src="https://img.shields.io/badge/built%20with-Tauri%202-24c8db">
 </p>
 
@@ -49,7 +49,7 @@ Otomo has its own playback engine, written in Rust:
 
 - **Binaural for headphones.** Each player is placed on a stage and rendered through measured head-related transfer functions (SADIE II, KU100), so the orchestra sounds outside your head, from where each section sits.
 - **Venues and seats.** Recording studio, live club, chamber hall, large concert hall or cathedral, heard from the front, middle or back.
-- **Real instruments.** Download free sample libraries in one click (Salamander Grand Piano, VS Chamber Orchestra 2 CE, FreePats, Karoryfer) and each track gets a fitting instrument automatically. Load your own SFZ files or any AudioUnit instrument on your Mac. Everything else falls back to a General MIDI SoundFont.
+- **Real instruments.** Download free sample libraries in one click (Salamander Grand Piano, VS Chamber Orchestra 2 CE, FreePats, Karoryfer) and each track gets a fitting instrument automatically. Load your own SFZ files or any AudioUnit instrument on your Mac. Everything else plays through the General MIDI SoundFont that comes with the app (GeneralUser GS).
 
 ## Also a capable MIDI and score tool
 
@@ -64,7 +64,7 @@ Otomo has its own playback engine, written in Rust:
 1. Download the latest `.dmg` from [Releases](https://github.com/hibiki1213/otomo/releases/latest).
 2. Drag **Otomo** into Applications and open it.
 
-Requires macOS 11 or later. Otomo works as a player and score viewer on its own; connect Claude to compose and edit.
+Requires a Mac with Apple silicon (M1 or later) and macOS 11 or later; Intel Macs aren't supported. Otomo works as a player and score viewer on its own; connect Claude to compose and edit. The in-app chat runs on Claude Code, which needs macOS 13 or later; Claude Desktop works from macOS 11.
 
 ## Connect Claude
 
@@ -90,7 +90,7 @@ Every write lands in the pending-edits queue. Nothing is saved to the song until
 
 ## Build from source
 
-You need macOS with the Xcode Command Line Tools, [Rust](https://rustup.rs) (stable), Node.js with [pnpm](https://pnpm.io), and CMake (`brew install cmake`, used to build the bundled sfizz sampler).
+You need macOS with the Xcode Command Line Tools, [Rust](https://rustup.rs) (stable), Node.js with [pnpm](https://pnpm.io), CMake (`brew install cmake`, used to build the bundled sfizz sampler), and [cargo-about](https://github.com/EmbarkStudios/cargo-about) (`cargo install cargo-about --features cli`, which collects the license notices the app ships).
 
 ```sh
 git clone https://github.com/hibiki1213/otomo.git
@@ -99,6 +99,8 @@ pnpm install
 pnpm mcp:build   # builds the MCP server that Claude connects to
 pnpm app:dev     # runs the app in development
 ```
+
+The first `pnpm app:dev` or `pnpm app:build` also downloads the General MIDI SoundFont the app ships with (GeneralUser GS, 31 MB) into `src-tauri/resources/`; `pnpm sounds` does just that step. `pnpm licenses` writes the third-party license list the app ships (`app:build` runs it every time, and `app:dev` runs it when the list is missing).
 
 `pnpm app:build` produces a release `.app` and `.dmg` under `src-tauri/target/release/bundle/`.
 
@@ -117,10 +119,10 @@ pnpm app:dev     # runs the app in development
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome, in English or Japanese. Please open an issue before starting on a large change, so we can agree on the direction first.
+Bug reports, ideas and pull requests are welcome, in English or Japanese. Report bugs in [Issues](https://github.com/hibiki1213/otomo/issues) and bring questions and ideas to [Discussions](https://github.com/hibiki1213/otomo/discussions). Before a large change, please talk it through there first so we can agree on the direction. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, checks and conventions.
 
 ## License
 
 Otomo is released under the [MIT License](LICENSE). The name and icon are not covered by it: a public fork needs its own name and icon (see [TRADEMARKS.md](TRADEMARKS.md)). "Built with Otomo" is welcome.
 
-Otomo builds on the work of others, including [sfizz](https://github.com/sfztools/sfizz) (BSD-2-Clause), [RustySynth](https://github.com/sinshu/rustysynth) (MIT), [Verovio](https://github.com/rism-digital/verovio) (LGPL-3.0) for engraving, the Leipzig music font (SIL OFL 1.1), and the [SADIE II](https://www.york.ac.uk/sadie-project/database.html) HRTF database (Apache-2.0). Sample libraries are downloaded separately and keep their own licenses, shown in the app.
+Otomo builds on the work of others, including [sfizz](https://github.com/sfztools/sfizz) (BSD-2-Clause), [RustySynth](https://github.com/sinshu/rustysynth) (MIT), [Verovio](https://github.com/rism-digital/verovio) (LGPL-3.0) for engraving, the Leipzig music font (SIL OFL 1.1), the [GeneralUser GS](https://schristiancollins.com/generaluser.php) SoundFont by S. Christian Collins (its own permissive license, bundled with the app), and the [SADIE II](https://www.york.ac.uk/sadie-project/database.html) HRTF database (Apache-2.0). Sample libraries are downloaded separately and keep their own licenses, shown in the app. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has the details. The complete list ships with the app, under **Licenses** at the foot of the sidebar.

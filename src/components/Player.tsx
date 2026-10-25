@@ -290,6 +290,7 @@ export default function Player({
       onStateChangeRef.current(s);
     };
     engine.onTick = (p) => setPosition(p);
+    engine.onSoundsMissing = () => setError(messages().player.soundsMissing);
     engineRef.current = engine;
     const last = lastSongRef.current;
     if (last) void loadBuffer(last.buffer, last.name, last.id);

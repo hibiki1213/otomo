@@ -9,7 +9,7 @@
 
 [macOS 版をダウンロード](https://github.com/hibiki1213/otomo/releases/latest) · [Claude とつなぐ](#claude-とつなぐ) · [ソースからビルド](#ソースからビルド) · [English](README.md)
 
-![MIT License](https://img.shields.io/badge/license-MIT-blue)![macOS 11+](https://img.shields.io/badge/macOS-11%2B-lightgrey)![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)
+![MIT License](https://img.shields.io/badge/license-MIT-blue)![macOS 11+, Apple silicon](https://img.shields.io/badge/macOS-11%2B%20%C2%B7%20Apple%20silicon-lightgrey)![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)
 
 ![「ドビュッシーの月の光を作って」と頼むと、Claude が IMSLP で楽譜を探して取り込み、テンポの揺れと強弱を付けていくところ](docs/media/demo-ja.gif)
 
@@ -32,7 +32,7 @@
 
 - **ヘッドホン向けのバイノーラル再生。** 各奏者をステージ上に配置し、実測の頭部伝達関数（SADIE II、KU100）で描画します。音が頭の外から、各パートの席の位置から聞こえます。
 - **会場と座席を選べる。** レコーディングスタジオ、ライブハウス、室内楽ホール、大ホール、大聖堂。座席は前方・中央・後方から選べます。
-- **本物の楽器音。** 無料のサンプル音源（Salamander Grand Piano、VS Chamber Orchestra 2 CE、FreePats、Karoryfer）をワンクリックでダウンロードでき、各トラックに合う楽器が自動で割り当てられます。手持ちの SFZ ファイルや、Mac に入っている AudioUnit 音源も使えます。それ以外は General MIDI の SoundFont で鳴ります。
+- **本物の楽器音。** 無料のサンプル音源（Salamander Grand Piano、VS Chamber Orchestra 2 CE、FreePats、Karoryfer）をワンクリックでダウンロードでき、各トラックに合う楽器が自動で割り当てられます。手持ちの SFZ ファイルや、Mac に入っている AudioUnit 音源も使えます。それ以外は、アプリに同梱した General MIDI の SoundFont（GeneralUser GS）で鳴ります。
 
 ## MIDI・楽譜ツールとしても
 
@@ -47,7 +47,7 @@
 1. [Releases](https://github.com/hibiki1213/otomo/releases/latest) から最新の `.dmg` をダウンロードします。
 2. **Otomo** をアプリケーションフォルダにドラッグして開きます。
 
-macOS 11 以降が必要です。Otomo 単体でも再生・楽譜表示ツールとして使えます。作曲や編集には Claude をつなぎます。
+Apple シリコン（M1 以降）の Mac と、macOS 11 以降が必要です。Intel Mac には対応していません。Otomo 単体でも再生・楽譜表示ツールとして使えます。作曲や編集には Claude をつなぎます。アプリ内チャットが使う Claude Code は macOS 13 以降が必要です。Claude Desktop は macOS 11 から使えます。
 
 ## Claude とつなぐ
 
@@ -70,7 +70,7 @@ Claude が使える MCP ツール
 
 ## ソースからビルド
 
-macOS と Xcode Command Line Tools、[Rust](https://rustup.rs)（stable）、Node.js と [pnpm](https://pnpm.io)、CMake（`brew install cmake`。同梱の sfizz サンプラーのビルドに使います）が必要です。
+macOS と Xcode Command Line Tools、[Rust](https://rustup.rs)（stable）、Node.js と [pnpm](https://pnpm.io)、CMake（`brew install cmake`。同梱の sfizz サンプラーのビルドに使います）、[cargo-about](https://github.com/EmbarkStudios/cargo-about)（`cargo install cargo-about --features cli`。アプリに同梱するライセンス表記の収集に使います）が必要です。
 
 ```sh
 git clone https://github.com/hibiki1213/otomo.git
@@ -79,6 +79,8 @@ pnpm install
 pnpm mcp:build   # Claude がつなぐ MCP サーバーをビルド
 pnpm app:dev     # 開発モードでアプリを起動
 ```
+
+初めて `pnpm app:dev` か `pnpm app:build` を実行すると、アプリに同梱する General MIDI の SoundFont（GeneralUser GS、31MB）も `src-tauri/resources/` にダウンロードされます。この手順だけを行うのが `pnpm sounds` です。アプリに同梱するサードパーティのライセンス一覧は `pnpm licenses` で作ります。`app:build` は毎回、`app:dev` は一覧がないときだけ自動で実行します。
 
 `pnpm app:build` を実行すると、リリース版の `.app` と `.dmg` が `src-tauri/target/release/bundle/` にできます。
 
@@ -94,10 +96,10 @@ pnpm app:dev     # 開発モードでアプリを起動
 
 ## コントリビュート
 
-バグ報告、アイデア、プルリクエストを歓迎します。日本語でも英語でもかまいません。大きな変更に取りかかる前に Issue を立ててもらえると、方向性を先にすり合わせられます。
+バグ報告、アイデア、プルリクエストを歓迎します。日本語でも英語でもかまいません。バグは [Issues](https://github.com/hibiki1213/otomo/issues) に、質問やアイデアは [Discussions](https://github.com/hibiki1213/otomo/discussions) にどうぞ。大きな変更に取りかかる前にそこで相談してもらえると、方向性を先にすり合わせられます。開発環境の用意や確認の手順、書き方の決まりは [CONTRIBUTING.md](CONTRIBUTING.md)（英語）にまとめています。
 
 ## ライセンス
 
 Otomo は [MIT ライセンス](LICENSE)で公開しています。名前とアイコンはライセンスの対象外です。公開するフォークには別の名前とアイコンを付けてください（[TRADEMARKS.md](TRADEMARKS.md) を参照）。「Otomo をもとに作った」と書いてもらうのは大歓迎です。
 
-Otomo は多くのプロジェクトの成果の上に成り立っています。[sfizz](https://github.com/sfztools/sfizz)（BSD-2-Clause）、[RustySynth](https://github.com/sinshu/rustysynth)（MIT）、浄書に使う [Verovio](https://github.com/rism-digital/verovio)（LGPL-3.0）、Leipzig 音楽フォント（SIL OFL 1.1）、[SADIE II](https://www.york.ac.uk/sadie-project/database.html) HRTF データベース（Apache-2.0）など。サンプル音源は別途ダウンロードされ、それぞれのライセンスに従います（アプリ内に表示されます）。
+Otomo は多くのプロジェクトの成果の上に成り立っています。[sfizz](https://github.com/sfztools/sfizz)（BSD-2-Clause）、[RustySynth](https://github.com/sinshu/rustysynth)（MIT）、浄書に使う [Verovio](https://github.com/rism-digital/verovio)（LGPL-3.0）、Leipzig 音楽フォント（SIL OFL 1.1）、アプリに同梱している S. Christian Collins 氏の [GeneralUser GS](https://schristiancollins.com/generaluser.php) SoundFont（独自の寛容なライセンス）、[SADIE II](https://www.york.ac.uk/sadie-project/database.html) HRTF データベース（Apache-2.0）など。サンプル音源は別途ダウンロードされ、それぞれのライセンスに従います（アプリ内に表示されます）。詳しくは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。すべてのライセンス文はアプリにも同梱されていて、サイドバー下部の「ライセンス」から開けます。

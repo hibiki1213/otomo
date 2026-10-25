@@ -5,11 +5,14 @@ import Home from "@/components/Home";
 import PanelToggle from "@/components/PanelToggle";
 import PendingBar from "@/components/PendingBar";
 import Player from "@/components/Player";
+import SettingsDialog from "@/components/SettingsDialog";
 import Sidebar from "@/components/Sidebar";
+import UpdateDialog from "@/components/UpdateDialog";
 import type { PlayerState } from "@/lib/midiEngine";
 import type { RollSelection } from "@/lib/rollSelection";
 import { useI18n } from "@/lib/i18n";
 import { libraryAvailable, type PasteRequest, type RollClip } from "@/lib/songsApi";
+import { appVersion, checkForUpdates } from "@/lib/updater";
 import { useSongLibrary } from "@/lib/useSongLibrary";
 
 export default function App() {
@@ -51,6 +54,7 @@ export default function App() {
     };
   }, []);
   const [exporting, setExporting] = useState<ExportTarget | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // What ⌘V pastes: a piano-roll range, from this song or any other.
   const [clip, setClip] = useState<RollClip | null>(null);
   // A short note at the bottom, with an action when there is one to take.
@@ -228,6 +232,46 @@ export default function App() {
     };
   }, [playById, refreshPending]);
 
+  // Updates: a quiet check shortly after launch, which says something only
+  // when there is a new version; and the person's own check, from the
+  // sidebar or the app menu, which always answers.
+  const checkUpdatesNow = useCallback(async () => {
+    if (import.meta.env.DEV) {
+      setToast({ text: t.updates.devBuild });
+      return;
+    }
+    const result = await checkForUpdates();
+    if (result === "latest") setToast({ text: t.updates.latest(await appVersion()) });
+    else if (result === "failed") setToast({ text: t.updates.checkFailed });
+    // The update dialog takes over from Settings rather than stacking on it.
+    else setSettingsOpen(false);
+  }, [t]);
+  useEffect(() => {
+    if (!libraryAvailable() || import.meta.env.DEV) return;
+    const timer = window.setTimeout(() => void checkForUpdates(), 10_000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    if (!libraryAvailable()) return;
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const unCheck = await listen("otomo://check-updates", () => void checkUpdatesNow());
+      const unSettings = await listen("otomo://open-settings", () => setSettingsOpen(true));
+      const un = () => {
+        unCheck();
+        unSettings();
+      };
+      if (cancelled) un();
+      else stop = un;
+    })();
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [checkUpdatesNow]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "o") {
@@ -242,6 +286,11 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "l") {
         e.preventDefault();
         setChatOpen((v) => !v);
+      }
+      // ⌘, opens Settings (in the app the menu item takes it first).
+      if (e.metaKey && e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen(true);
       }
       // ⌃⌘S, the Mac's own "Show Sidebar".
       if (e.metaKey && e.ctrlKey && e.code === "KeyS") {
@@ -267,6 +316,7 @@ export default function App() {
           onResize={setSidebarWidth}
           onExport={exportSong}
           onHistory={(id, back) => void history(id, back)}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       )}
       <PanelToggle
@@ -339,6 +389,13 @@ export default function App() {
         />
       )}
       {exporting && <ExportDialog target={exporting} onClose={() => setExporting(null)} />}
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onCheckUpdates={libraryAvailable() ? () => void checkUpdatesNow() : undefined}
+        />
+      )}
+      <UpdateDialog busy={state === "playing" || claudeBusy || library.pending.length > 0} />
       {toast && (
         <div className="toast" role="status">
           {toast.text}

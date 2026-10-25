@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/hibiki1213/otomo/discussions/categories/q-a
+    about: How do I…? Is this expected? Ask in Discussions.
+  - name: Suggest an idea
+    url: https://github.com/hibiki1213/otomo/discussions/categories/ideas
+    about: Feature ideas are talked through in Discussions first.
+  - name: Report a security issue
+    url: https://github.com/hibiki1213/otomo/security/advisories/new
+    about: Please report vulnerabilities privately, not in a public issue.

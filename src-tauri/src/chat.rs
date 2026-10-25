@@ -475,14 +475,11 @@ fn status() -> ChatStatus {
     let server = crate::mcp_setup::server_path();
     let blocked = if claude.is_none() {
         Some(tr!(
-            "Claude Code が見つかりません。ターミナルで `curl -fsSL https://claude.ai/install.sh | bash` を実行してインストールし、`claude` を一度起動してログインしてから、アプリを開き直してください。",
-            "Claude Code wasn't found. Install it by running `curl -fsSL https://claude.ai/install.sh | bash` in Terminal, start `claude` once to log in, then reopen the app."
+            "Claude Code が見つかりません。ターミナルで `curl -fsSL https://claude.ai/install.sh | bash` を実行してインストールし、`claude` を一度起動してログインしてから、Otomo に戻ってください。",
+            "Claude Code wasn't found. Install it by running `curl -fsSL https://claude.ai/install.sh | bash` in Terminal, start `claude` once to log in, then come back to Otomo."
         ))
     } else if server.is_none() {
-        Some(tr!(
-            "MCP サーバーがまだビルドされていません。`pnpm mcp:build` を実行してください。",
-            "The MCP server hasn't been built yet. Run `pnpm mcp:build`."
-        ))
+        Some(crate::mcp_setup::server_missing())
     } else {
         None
     };
@@ -1030,6 +1027,13 @@ fn pump(app: &AppHandle, conv_id: i64, stdout: ChildStdout) -> Outcome {
     out
 }
 
+/// Whether `claude` refused the command line itself: an older version that
+/// doesn't know a flag this app passes (`--effort`, `--tools`…).
+fn too_old(stderr: &str) -> bool {
+    let s = stderr.to_ascii_lowercase();
+    s.contains("unknown option") || s.contains("unknown argument") || s.contains("unexpected argument")
+}
+
 /// Reap the child, save what was said, and tell the UI it is over.
 fn finish(app: &AppHandle, runs: &Mutex<Runs>, conv_id: i64, mut out: Outcome, stderr: &str) {
     let stopped = {
@@ -1051,6 +1055,12 @@ fn finish(app: &AppHandle, runs: &Mutex<Runs>, conv_id: i64, mut out: Outcome, s
     if !stopped && !out.finished && out.error.is_none() {
         out.error = Some(if stderr.trim().is_empty() {
             tr!("返事が返ってきませんでした", "No reply came back")
+        } else if too_old(stderr) {
+            tr!(
+                "Claude Code が古いようです。ターミナルで `claude update` を実行してから、もう一度送ってください。\n（{}）",
+                "Claude Code looks out of date. Run `claude update` in Terminal, then send again.\n({})",
+                short(stderr, 200)
+            )
         } else {
             short(stderr, 300)
         });
@@ -1112,6 +1122,12 @@ mod tests {
         assert!(takes_effort(Some("fable")));
         assert!(!takes_effort(Some("haiku")));
         assert!(!takes_effort(Some("claude-haiku-4-5-20251001")));
+    }
+
+    #[test]
+    fn an_unknown_flag_reads_as_an_old_claude() {
+        assert!(too_old("error: unknown option '--effort'\n"));
+        assert!(!too_old("Failed to authenticate: OAuth session expired"));
     }
 
     #[test]

@@ -12,6 +12,12 @@
     "dialog:allow-save",
     "dialog:allow-ask",
     "opener:allow-open-url",
-    "opener:allow-reveal-item-in-dir"
+    "opener:allow-reveal-item-in-dir",
+    "updater:default",
+    "process:allow-restart",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$RESOURCE/THIRD_PARTY_LICENSES.html" }]
+    }
   ]
 }

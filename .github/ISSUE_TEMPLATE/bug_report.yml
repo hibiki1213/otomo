@@ -1,0 +1,94 @@
+name: Bug report
+description: Something in Otomo doesn't work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. English or Japanese, whichever is easier for you.
+        日本語で書いてもらって大丈夫です。
+
+        Questions and feature ideas go to [Discussions](https://github.com/hibiki1213/otomo/discussions) instead.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, including any error message word for word.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a MIDI file
+        2. Ask Claude "…"
+        3. Press Apply
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it happened
+      options:
+        - Playback and sound (instruments, venues, sample libraries)
+        - Claude chat inside Otomo
+        - Claude Desktop connection
+        - Score view, PDF or MusicXML export
+        - Opening or importing files
+        - Something else
+    validations:
+      required: true
+
+  - type: dropdown
+    id: claude
+    attributes:
+      label: How you use Claude with Otomo
+      options:
+        - In-app chat (Claude Code)
+        - Claude Desktop
+        - Both
+        - I don't use Claude with Otomo
+    validations:
+      required: true
+
+  - type: input
+    id: claude-version
+    attributes:
+      label: Claude Code version
+      description: If you use the in-app chat, the output of `claude --version` in Terminal.
+      placeholder: "2.1.304 (Claude Code)"
+
+  - type: input
+    id: otomo-version
+    attributes:
+      label: Otomo version
+      description: Otomo menu → About Otomo.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      description: Apple menu → About This Mac.
+      placeholder: "macOS 26.1, MacBook Air (M2)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Files, screenshots or recordings
+      description: |
+        Anything that shows the problem. If you attach a song, it must be your own or in the public domain.
+        曲ファイルを添付する場合は、自作かパブリックドメインのものに限ります。
