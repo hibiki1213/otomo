@@ -64,8 +64,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # A throwaway keychain holding the Developer ID identity and Apple's G2
-      # intermediate, which the .p12 does not carry, so codesign can build the
-      # chain. The partition list lets codesign use the key without a prompt.
+      # intermediate (from the .p12 when it carries it, else from Apple), so
+      # codesign can build the chain. The partition list lets codesign use the
+      # key without a prompt.
       - name: Import the signing certificate
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -82,9 +83,13 @@ jobs:
             -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           rm "$RUNNER_TEMP/certificate.p12"
 
-          curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" \
-            https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
-          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain"
+          # A .p12 exported from a Mac that has the intermediate already carries
+          # it (and Apple's root); importing it a second time is an error.
+          if ! security find-certificate -c "Developer ID Certification Authority" "$keychain" > /dev/null 2>&1; then
+            curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" \
+              https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+            security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain"
+          fi
 
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$keychain_password" "$keychain" > /dev/null
