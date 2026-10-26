@@ -111,12 +111,17 @@ jobs:
       # runtime, then notarizes and staples the .app before making the DMG.
       # The release config adds the updater's .app.tar.gz, signed with the
       # updater key whose public half is in tauri.conf.json.
+      # On CI Tauri skips the Finder step that writes the DMG window's
+      # background, icon positions and size (.DS_Store), leaving a plain
+      # folder view; TAURI_BUNDLER_DMG_IGNORE_CI keeps it. If Finder can't be
+      # driven here the build fails rather than ship a bare DMG.
       - name: Build, sign and notarize the app
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
         run: pnpm app:build --config src-tauri/tauri.release.conf.json
 
       # Tauri notarizes only the .app, so the DMG goes to Apple on its own;
@@ -170,6 +175,8 @@ jobs:
           mount=$(hdiutil attach -nobrowse -readonly "$dmg" | awk -F'\t' '/\/Volumes\//{print $NF}')
           spctl -a -vv -t exec "$mount/Otomo.app"
           codesign --verify --deep --strict "$mount/Otomo.app"
+          # The window layout (background, icon positions) lives in .DS_Store.
+          [ -f "$mount/.DS_Store" ] || { echo "::error::the DMG has no Finder layout (.DS_Store)"; exit 1; }
           hdiutil detach "$mount"
 
           # What the updater swaps in must be the same notarized, stapled app.
