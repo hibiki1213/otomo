@@ -3180,7 +3180,7 @@ dependencies = [
 
 [[package]]
 name = "otomo"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -3228,7 +3228,7 @@ dependencies = [
 
 [[package]]
 name = "otomo-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "objc2-core-foundation",
@@ -3243,7 +3243,7 @@ dependencies = [
 
 [[package]]
 name = "otomo-score"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "midly",
  "roxmltree 0.20.0",
@@ -3252,7 +3252,7 @@ dependencies = [
 
 [[package]]
 name = "otomo-synth"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "pango"

@@ -6,7 +6,7 @@ exclude = ["crates/rustysynth"]
 
 [package]
 name = "otomo"
-version = "0.1.0"
+version = "0.1.1"
 description = "Desktop music editor where Claude composes alongside you"
 authors = ["Hibiki Kawabe"]
 license = "MIT"
