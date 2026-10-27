@@ -3182,7 +3182,7 @@ dependencies = [
 name = "otomo"
 version = "0.1.1"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "block2",
  "cmake",
  "cpal",
@@ -3230,7 +3230,7 @@ dependencies = [
 name = "otomo-mcp"
 version = "0.1.1"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "objc2-core-foundation",
  "objc2-core-graphics",
  "otomo-score",
