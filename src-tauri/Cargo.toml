@@ -55,7 +55,7 @@ krilla-svg = "0.8.1"
 usvg = "0.47.0"
 ttf-parser = "0.25.1"
 wuff = { version = "0.2.9", default-features = false, features = ["brotli"] }
-base64 = "0.22.1"
+base64 = "0.23.1"
 tauri-plugin-updater = "~2.12"
 tauri-plugin-process = "~2.3.1"
 
