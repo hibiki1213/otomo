@@ -1,0 +1,265 @@
+// Otomo's mapping of Karoryfer Growlybass (CC0), played in place of
+// growlybass_clean.sfz: the same sustained samples, with two fixes.
+//
+// - Keys are where the notes sound. The library maps each sample an octave
+//   above its pitch (bass parts are written an octave up), so General MIDI
+//   parts came out an octave low and E1-G#1 had no sample at all. The range
+//   also stretches the top sample up instead of hitting the pick scrapes.
+// - Every sample is brought to the same level (RMS of its first 0.85 s at
+//   -27.8 dBFS, before the catalog's gain), and velocity follows sfizz's
+//   default curve, as the SoundFont does. The library's own levels jumped
+//   by up to 5 dB between layers - softer at f than at mf on some notes -
+//   and by as much between neighbouring notes.
+
+<group> lokey=12 hikey=26 pitch_keycenter=25 ampeg_release=0.3
+<region> sample=sustain/db2_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=1.8
+<region> sample=sustain/db2_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=0.2
+<region> sample=sustain/db2_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=0.7
+<region> sample=sustain/db2_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-0.9
+<region> sample=sustain/db2_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-3.6
+<region> sample=sustain/db2_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-4.0
+<region> sample=sustain/db2_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-3.7
+<region> sample=sustain/db2_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-4.5
+<region> sample=sustain/db2_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-5.8
+<region> sample=sustain/db2_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-5.8
+<region> sample=sustain/db2_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-6.3
+<region> sample=sustain/db2_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-4.9
+<region> sample=sustain/db2_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-6.4
+<region> sample=sustain/db2_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-6.0
+<region> sample=sustain/db2_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-8.4
+<region> sample=sustain/db2_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-9.0
+
+<group> lokey=27 hikey=28 pitch_keycenter=28 ampeg_release=0.3
+<region> sample=sustain/e2_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-0.3
+<region> sample=sustain/e2_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-0.7
+<region> sample=sustain/e2_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-0.1
+<region> sample=sustain/e2_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=0.3
+<region> sample=sustain/e2_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-4.1
+<region> sample=sustain/e2_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-3.7
+<region> sample=sustain/e2_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-4.0
+<region> sample=sustain/e2_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-4.6
+<region> sample=sustain/e2_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-6.8
+<region> sample=sustain/e2_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-7.7
+<region> sample=sustain/e2_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-7.8
+<region> sample=sustain/e2_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-6.9
+<region> sample=sustain/e2_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-10.1
+<region> sample=sustain/e2_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-10.8
+<region> sample=sustain/e2_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-9.3
+<region> sample=sustain/e2_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-8.7
+
+<group> lokey=29 hikey=31 pitch_keycenter=30 ampeg_release=0.3
+<region> sample=sustain/gb2_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=0.0
+<region> sample=sustain/gb2_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=2.2
+<region> sample=sustain/gb2_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=1.0
+<region> sample=sustain/gb2_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-0.3
+<region> sample=sustain/gb2_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-4.2
+<region> sample=sustain/gb2_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-4.0
+<region> sample=sustain/gb2_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-5.4
+<region> sample=sustain/gb2_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-4.5
+<region> sample=sustain/gb2_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-1.9
+<region> sample=sustain/gb2_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-2.7
+<region> sample=sustain/gb2_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-2.4
+<region> sample=sustain/gb2_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-0.6
+<region> sample=sustain/gb2_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-6.2
+<region> sample=sustain/gb2_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-5.8
+<region> sample=sustain/gb2_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-7.0
+<region> sample=sustain/gb2_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-7.8
+
+<group> lokey=32 hikey=34 pitch_keycenter=33 ampeg_release=0.3
+<region> sample=sustain/a2_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=2.2
+<region> sample=sustain/a2_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=2.4
+<region> sample=sustain/a2_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=0.7
+<region> sample=sustain/a2_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=1.9
+<region> sample=sustain/a2_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-1.1
+<region> sample=sustain/a2_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-1.8
+<region> sample=sustain/a2_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=0.0
+<region> sample=sustain/a2_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=1.3
+<region> sample=sustain/a2_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-3.5
+<region> sample=sustain/a2_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-2.1
+<region> sample=sustain/a2_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-1.8
+<region> sample=sustain/a2_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-1.4
+<region> sample=sustain/a2_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-7.0
+<region> sample=sustain/a2_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-4.4
+<region> sample=sustain/a2_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-5.3
+<region> sample=sustain/a2_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-5.4
+
+<group> lokey=35 hikey=37 pitch_keycenter=36 ampeg_release=0.3
+<region> sample=sustain/c3_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-0.9
+<region> sample=sustain/c3_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-0.9
+<region> sample=sustain/c3_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-0.7
+<region> sample=sustain/c3_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-0.6
+<region> sample=sustain/c3_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-3.5
+<region> sample=sustain/c3_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-2.9
+<region> sample=sustain/c3_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-1.6
+<region> sample=sustain/c3_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-0.5
+<region> sample=sustain/c3_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-3.0
+<region> sample=sustain/c3_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-2.0
+<region> sample=sustain/c3_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-1.9
+<region> sample=sustain/c3_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-2.5
+<region> sample=sustain/c3_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-7.2
+<region> sample=sustain/c3_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-5.8
+<region> sample=sustain/c3_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-6.5
+<region> sample=sustain/c3_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-5.4
+
+<group> lokey=38 hikey=40 pitch_keycenter=39 ampeg_release=0.3
+<region> sample=sustain/eb3_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-1.7
+<region> sample=sustain/eb3_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-2.2
+<region> sample=sustain/eb3_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-1.5
+<region> sample=sustain/eb3_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-1.8
+<region> sample=sustain/eb3_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-6.5
+<region> sample=sustain/eb3_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-4.1
+<region> sample=sustain/eb3_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-5.4
+<region> sample=sustain/eb3_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-4.7
+<region> sample=sustain/eb3_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-6.5
+<region> sample=sustain/eb3_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-5.9
+<region> sample=sustain/eb3_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-6.9
+<region> sample=sustain/eb3_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-5.4
+<region> sample=sustain/eb3_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-8.3
+<region> sample=sustain/eb3_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-7.6
+<region> sample=sustain/eb3_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-7.7
+<region> sample=sustain/eb3_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-6.4
+
+<group> lokey=41 hikey=43 pitch_keycenter=42 ampeg_release=0.3
+<region> sample=sustain/gb3_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-0.0
+<region> sample=sustain/gb3_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-0.5
+<region> sample=sustain/gb3_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=0.0
+<region> sample=sustain/gb3_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-0.0
+<region> sample=sustain/gb3_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-1.5
+<region> sample=sustain/gb3_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-0.4
+<region> sample=sustain/gb3_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-2.7
+<region> sample=sustain/gb3_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-3.9
+<region> sample=sustain/gb3_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-2.4
+<region> sample=sustain/gb3_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-3.2
+<region> sample=sustain/gb3_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-2.4
+<region> sample=sustain/gb3_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-3.0
+<region> sample=sustain/gb3_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-4.1
+<region> sample=sustain/gb3_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-3.3
+<region> sample=sustain/gb3_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-3.2
+<region> sample=sustain/gb3_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-2.6
+
+<group> lokey=44 hikey=46 pitch_keycenter=45 ampeg_release=0.3
+<region> sample=sustain/a3_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-1.8
+<region> sample=sustain/a3_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-1.7
+<region> sample=sustain/a3_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-1.1
+<region> sample=sustain/a3_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-1.1
+<region> sample=sustain/a3_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-4.4
+<region> sample=sustain/a3_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-4.6
+<region> sample=sustain/a3_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-5.3
+<region> sample=sustain/a3_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-5.1
+<region> sample=sustain/a3_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-7.4
+<region> sample=sustain/a3_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-6.6
+<region> sample=sustain/a3_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-7.7
+<region> sample=sustain/a3_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-6.5
+<region> sample=sustain/a3_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-6.7
+<region> sample=sustain/a3_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-7.1
+<region> sample=sustain/a3_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-7.6
+<region> sample=sustain/a3_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-7.6
+
+<group> lokey=47 hikey=49 pitch_keycenter=48 ampeg_release=0.3
+<region> sample=sustain/c4_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-2.7
+<region> sample=sustain/c4_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-2.5
+<region> sample=sustain/c4_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-3.3
+<region> sample=sustain/c4_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-2.5
+<region> sample=sustain/c4_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-5.8
+<region> sample=sustain/c4_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-6.7
+<region> sample=sustain/c4_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-7.0
+<region> sample=sustain/c4_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-6.7
+<region> sample=sustain/c4_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-6.9
+<region> sample=sustain/c4_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-7.4
+<region> sample=sustain/c4_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-7.3
+<region> sample=sustain/c4_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-7.4
+<region> sample=sustain/c4_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-6.4
+<region> sample=sustain/c4_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-6.3
+<region> sample=sustain/c4_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-6.7
+<region> sample=sustain/c4_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-7.6
+
+<group> lokey=50 hikey=52 pitch_keycenter=51 ampeg_release=0.3
+<region> sample=sustain/eb4_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-1.2
+<region> sample=sustain/eb4_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-2.0
+<region> sample=sustain/eb4_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-4.3
+<region> sample=sustain/eb4_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-2.8
+<region> sample=sustain/eb4_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-5.6
+<region> sample=sustain/eb4_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-5.5
+<region> sample=sustain/eb4_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-3.1
+<region> sample=sustain/eb4_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-5.1
+<region> sample=sustain/eb4_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-7.7
+<region> sample=sustain/eb4_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-4.4
+<region> sample=sustain/eb4_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-5.2
+<region> sample=sustain/eb4_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-3.0
+<region> sample=sustain/eb4_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-7.6
+<region> sample=sustain/eb4_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-6.9
+<region> sample=sustain/eb4_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-7.4
+<region> sample=sustain/eb4_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-7.7
+
+<group> lokey=53 hikey=55 pitch_keycenter=54 ampeg_release=0.3
+<region> sample=sustain/gb4_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-4.3
+<region> sample=sustain/gb4_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-3.0
+<region> sample=sustain/gb4_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-0.7
+<region> sample=sustain/gb4_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-1.9
+<region> sample=sustain/gb4_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-7.2
+<region> sample=sustain/gb4_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-6.0
+<region> sample=sustain/gb4_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-3.7
+<region> sample=sustain/gb4_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-4.8
+<region> sample=sustain/gb4_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-5.3
+<region> sample=sustain/gb4_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-6.5
+<region> sample=sustain/gb4_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-7.0
+<region> sample=sustain/gb4_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-4.3
+<region> sample=sustain/gb4_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-7.3
+<region> sample=sustain/gb4_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-7.9
+<region> sample=sustain/gb4_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-7.9
+<region> sample=sustain/gb4_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-8.0
+
+<group> lokey=56 hikey=58 pitch_keycenter=57 ampeg_release=0.3
+<region> sample=sustain/a4_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-4.5
+<region> sample=sustain/a4_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-6.0
+<region> sample=sustain/a4_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-6.2
+<region> sample=sustain/a4_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-5.8
+<region> sample=sustain/a4_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-8.6
+<region> sample=sustain/a4_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-8.5
+<region> sample=sustain/a4_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-8.5
+<region> sample=sustain/a4_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-7.1
+<region> sample=sustain/a4_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-9.8
+<region> sample=sustain/a4_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-8.9
+<region> sample=sustain/a4_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-9.6
+<region> sample=sustain/a4_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-8.0
+<region> sample=sustain/a4_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-13.1
+<region> sample=sustain/a4_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-12.8
+<region> sample=sustain/a4_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-11.4
+<region> sample=sustain/a4_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-9.0
+
+<group> lokey=59 hikey=61 pitch_keycenter=60 ampeg_release=0.3
+<region> sample=sustain/c5_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-5.0
+<region> sample=sustain/c5_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-6.4
+<region> sample=sustain/c5_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-5.4
+<region> sample=sustain/c5_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-5.1
+<region> sample=sustain/c5_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-10.6
+<region> sample=sustain/c5_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-9.1
+<region> sample=sustain/c5_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-10.3
+<region> sample=sustain/c5_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-9.6
+<region> sample=sustain/c5_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-9.9
+<region> sample=sustain/c5_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-9.4
+<region> sample=sustain/c5_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-8.2
+<region> sample=sustain/c5_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-8.9
+<region> sample=sustain/c5_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-10.5
+<region> sample=sustain/c5_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-10.8
+<region> sample=sustain/c5_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-12.2
+<region> sample=sustain/c5_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-10.3
+
+<group> lokey=62 hikey=84 pitch_keycenter=63 ampeg_release=0.3
+<region> sample=sustain/eb5_pp_rr1.wav lovel=1 hivel=60 lorand=0 hirand=0.25 volume=-4.6
+<region> sample=sustain/eb5_pp_rr2.wav lovel=1 hivel=60 lorand=0.25 hirand=0.5 volume=-5.5
+<region> sample=sustain/eb5_pp_rr3.wav lovel=1 hivel=60 lorand=0.5 hirand=0.75 volume=-3.9
+<region> sample=sustain/eb5_pp_rr4.wav lovel=1 hivel=60 lorand=0.75 hirand=1 volume=-4.7
+<region> sample=sustain/eb5_p_rr1.wav lovel=61 hivel=95 lorand=0 hirand=0.25 volume=-8.3
+<region> sample=sustain/eb5_p_rr2.wav lovel=61 hivel=95 lorand=0.25 hirand=0.5 volume=-7.9
+<region> sample=sustain/eb5_p_rr3.wav lovel=61 hivel=95 lorand=0.5 hirand=0.75 volume=-10.4
+<region> sample=sustain/eb5_p_rr4.wav lovel=61 hivel=95 lorand=0.75 hirand=1 volume=-9.2
+<region> sample=sustain/eb5_f_rr1.wav lovel=96 hivel=120 lorand=0 hirand=0.25 volume=-11.6
+<region> sample=sustain/eb5_f_rr2.wav lovel=96 hivel=120 lorand=0.25 hirand=0.5 volume=-9.7
+<region> sample=sustain/eb5_f_rr3.wav lovel=96 hivel=120 lorand=0.5 hirand=0.75 volume=-5.6
+<region> sample=sustain/eb5_f_rr4.wav lovel=96 hivel=120 lorand=0.75 hirand=1 volume=-7.5
+<region> sample=sustain/eb5_ff_rr1.wav lovel=121 hivel=127 lorand=0 hirand=0.25 volume=-14.6
+<region> sample=sustain/eb5_ff_rr2.wav lovel=121 hivel=127 lorand=0.25 hirand=0.5 volume=-13.0
+<region> sample=sustain/eb5_ff_rr3.wav lovel=121 hivel=127 lorand=0.5 hirand=0.75 volume=-12.3
+<region> sample=sustain/eb5_ff_rr4.wav lovel=121 hivel=127 lorand=0.75 hirand=1 volume=-13.7
+

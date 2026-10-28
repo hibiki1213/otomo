@@ -33,11 +33,19 @@ pub struct CatalogInstrument {
     /// Level trim so the library sits at the SoundFont's loudness (measured:
     /// energy of a C4 at velocity 110 vs. the GM patch it replaces).
     pub gain_db: f32,
+    /// Otomo's own SFZ text, played in place of `sfz` (whose folder its
+    /// sample paths are relative to), for libraries whose mapping is off.
+    pub mapping: Option<&'static str>,
 }
 
 impl CatalogInstrument {
     const fn gain(mut self, db: f32) -> Self {
         self.gain_db = db;
+        self
+    }
+
+    const fn mapping(mut self, sfz: &'static str) -> Self {
+        self.mapping = Some(sfz);
         self
     }
 }
@@ -70,7 +78,7 @@ const fn inst(
     sfz: &'static str,
     programs: &'static [u8],
 ) -> CatalogInstrument {
-    CatalogInstrument { id, name, name_ja, sfz, split: &[], programs, percussion: false, gain_db: 0.0 }
+    CatalogInstrument { id, name, name_ja, sfz, split: &[], programs, percussion: false, gain_db: 0.0, mapping: None }
 }
 
 const fn split(
@@ -80,7 +88,7 @@ const fn split(
     split: &'static [SplitPart],
     programs: &'static [u8],
 ) -> CatalogInstrument {
-    CatalogInstrument { id, name, name_ja, sfz: "", split, programs, percussion: false, gain_db: 0.0 }
+    CatalogInstrument { id, name, name_ja, sfz: "", split, programs, percussion: false, gain_db: 0.0, mapping: None }
 }
 
 /// VSCO string sections, each playing the part of the keyboard it covers:
@@ -208,6 +216,7 @@ pub const CATALOG: &[CatalogLibrary] = &[
             programs: &[],
             percussion: true,
             gain_db: 2.4,
+            mapping: None,
         }],
     },
     CatalogLibrary {
@@ -288,6 +297,10 @@ pub const CATALOG: &[CatalogLibrary] = &[
         download_size: 167_454_256,
         archive: Archive::Zip,
         root: "",
-        instruments: &[inst("bass", "Electric Bass (Growlybass)", "エレキベース（Growlybass）", "growlybass_clean.sfz", &[33, 34, 35]).gain(8.0)],
+        // The library maps every note an octave above where it sounds and
+        // its velocity layers at uneven levels; see growlybass.sfz.
+        instruments: &[inst("bass", "Electric Bass (Growlybass)", "エレキベース（Growlybass）", "growlybass_clean.sfz", &[33, 34, 35])
+            .gain(8.0)
+            .mapping(include_str!("growlybass.sfz"))],
     },
 ];

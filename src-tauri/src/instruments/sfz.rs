@@ -41,6 +41,7 @@ extern "C" {
     fn sfizz_create_synth() -> *mut sfizz_synth_t;
     fn sfizz_free(s: *mut sfizz_synth_t);
     fn sfizz_load_file(s: *mut sfizz_synth_t, path: *const c_char) -> bool;
+    fn sfizz_load_string(s: *mut sfizz_synth_t, path: *const c_char, text: *const c_char) -> bool;
     fn sfizz_set_sample_rate(s: *mut sfizz_synth_t, sample_rate: f32);
     fn sfizz_set_samples_per_block(s: *mut sfizz_synth_t, samples: c_int);
     fn sfizz_set_num_voices(s: *mut sfizz_synth_t, voices: c_int);
@@ -78,8 +79,10 @@ unsafe impl Send for SfzInstrument {}
 
 impl SfzInstrument {
     /// Create and load an instrument. Blocking (reads sample preloads).
+    /// A catalog file Otomo remaps is played through its own mapping.
     pub fn load(path: &Path, sample_rate: u32) -> Result<Self, String> {
         let c_path = CString::new(path.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+        let mapping = crate::library::mapping_for(path).map(CString::new).transpose().map_err(|e| e.to_string())?;
         let _setup = setup_lock();
         // SAFETY: fresh instance, used on this thread only until returned.
         unsafe {
@@ -90,7 +93,11 @@ impl SfzInstrument {
             sfizz_set_sample_rate(synth, sample_rate as f32);
             sfizz_set_samples_per_block(synth, MAX_FRAMES as c_int);
             sfizz_set_num_voices(synth, VOICES);
-            if !sfizz_load_file(synth, c_path.as_ptr()) || sfizz_get_num_regions(synth) == 0 {
+            let loaded = match &mapping {
+                Some(text) => sfizz_load_string(synth, c_path.as_ptr(), text.as_ptr()),
+                None => sfizz_load_file(synth, c_path.as_ptr()),
+            };
+            if !loaded || sfizz_get_num_regions(synth) == 0 {
                 sfizz_free(synth);
                 return Err(format!("sfizz: could not load {}", path.display()));
             }

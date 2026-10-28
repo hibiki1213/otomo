@@ -77,6 +77,21 @@ fn find_sfz(dir: &Path, rel: &str) -> Option<PathBuf> {
     None
 }
 
+/// Otomo's own mapping for a catalog .sfz, if it has one (see
+/// [`CatalogInstrument::mapping`]). Matched by file name inside an installed
+/// library, so songs that remember the file's path get it too.
+pub fn mapping_for(path: &Path) -> Option<&'static str> {
+    let name = path.file_name()?;
+    if !path.ancestors().skip(1).take(6).any(is_installed) {
+        return None;
+    }
+    CATALOG
+        .iter()
+        .flat_map(|l| l.instruments)
+        .find(|i| Path::new(i.sfz).file_name() == Some(name))
+        .and_then(|i| i.mapping)
+}
+
 fn entry_for(lib: &CatalogLibrary, inst: &CatalogInstrument, dir: &Path) -> Option<InstrumentEntry> {
     let choice = if inst.split.is_empty() {
         InstrumentChoice::Sfz { path: find_sfz(dir, inst.sfz)?.to_string_lossy().into_owned(), gain_db: inst.gain_db }
@@ -445,6 +460,43 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn remaps_only_inside_an_installed_library() {
+        let tmp = std::env::temp_dir().join(format!("otomo-map-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let sfz = tmp.join("growlybass_clean.sfz");
+        assert!(mapping_for(&sfz).is_none(), "a file the user picked plays as it is");
+        std::fs::write(tmp.join(INSTALLED_MARKER), "").unwrap();
+        assert!(mapping_for(&sfz).is_some());
+        assert!(mapping_for(&tmp.join("growlybass_dirty.sfz")).is_none());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Every key from C0 to C6 has exactly one group, and every group all
+    /// velocities and round robins.
+    #[test]
+    fn growlybass_mapping_covers_each_key_once() {
+        let lib = CATALOG.iter().find(|l| l.id == "karoryfer-growlybass").unwrap();
+        let text = lib.instruments[0].mapping.unwrap();
+        let value = |line: &str, key: &str| -> u8 {
+            let field = line.split_whitespace().find_map(|f| f.strip_prefix(key)).unwrap();
+            field.strip_prefix('=').unwrap().parse().unwrap()
+        };
+        let mut next = 12;
+        for group in text.split("<group>").skip(1) {
+            let header = group.lines().next().unwrap();
+            assert_eq!(value(header, "lokey"), next);
+            next = value(header, "hikey") + 1;
+            let regions: Vec<_> = group.lines().filter(|l| l.starts_with("<region>")).collect();
+            for v in 1..=127u8 {
+                let layers = regions.iter().filter(|r| (value(r, "lovel")..=value(r, "hivel")).contains(&v)).count();
+                assert_eq!(layers, 4, "{header}: velocity {v}");
+            }
+        }
+        assert_eq!(next, 85);
+    }
 }
 
 #[cfg(test)]
@@ -612,6 +664,129 @@ mod calibration {
                 );
             }
         }
+    }
+
+    /// The electric bass note by note and velocity by velocity, next to the
+    /// SoundFont patch it replaces: level in dB (catalog gain applied, the
+    /// average of eight notes to cover round robins) and pitch. Fails on a
+    /// silent or mistuned note, or one that gets softer as velocity rises.
+    /// `cargo test --release -- --ignored bass_evenness --nocapture`
+    #[test]
+    #[ignore]
+    fn bass_evenness() {
+        let Ok(sf2) = std::env::var("OTOMO_SF2") else { return };
+        let sf = Arc::new(SoundFont::new(&mut BufReader::new(File::open(sf2).unwrap())).unwrap());
+        let lib = CATALOG.iter().find(|l| l.id == "karoryfer-growlybass").unwrap();
+        let dir = PathBuf::from(std::env::var("HOME").unwrap())
+            .join("Library/Application Support/io.github.hibiki1213.otomo/libraries")
+            .join(lib.id);
+        let Some(entry) = entry_for(lib, &lib.instruments[0], &dir) else { return };
+        let InstrumentChoice::Sfz { path, gain_db } = &entry.choice else { unreachable!() };
+        let mut inst = SfzInstrument::load(Path::new(path), SR).unwrap();
+        inst.set_gain_db(*gain_db);
+        let mut sf2 = Synthesizer::new(&sf, &SynthesizerSettings::new(SR as i32)).unwrap();
+        sf2.process_midi_message(0, 0xC0, 33, 0);
+
+        /// Plays a note for BLOCKS blocks; returns its energy and left channel.
+        fn play(inst: &mut dyn Instrument, key: u8, vel: u8) -> (f32, Vec<f32>) {
+            let (mut l, mut r) = (vec![0f32; 1024], vec![0f32; 1024]);
+            let mut left = Vec::new();
+            let mut energy = 0.0;
+            inst.note_on(0, key, vel);
+            for _ in 0..BLOCKS {
+                inst.render(&mut l, &mut r);
+                energy += l.iter().chain(&r).map(|v| v * v).sum::<f32>();
+                left.extend_from_slice(&l);
+            }
+            // Let the release and any effect tails die away.
+            inst.all_notes_off(true);
+            for _ in 0..BLOCKS {
+                inst.render(&mut l, &mut r);
+            }
+            (energy, left)
+        }
+        /// Fundamental by autocorrelation, 0.1-0.4 s in: the shortest period
+        /// that correlates almost as well as the best (whole multiples of
+        /// it do too).
+        fn pitch(x: &[f32]) -> f32 {
+            let seg = &x[SR as usize / 10..SR as usize * 4 / 10];
+            let ac: Vec<f32> = (0..SR as usize / 25)
+                .map(|lag| seg[..seg.len() - lag].iter().zip(&seg[lag..]).map(|(a, b)| a * b).sum())
+                .collect();
+            let lags = SR as usize / 500..ac.len() - 1;
+            let best = lags.clone().map(|i| ac[i]).fold(f32::MIN, f32::max);
+            let peak = |i: usize| ac[i] >= 0.9 * best && ac[i] >= ac[i - 1] && ac[i] >= ac[i + 1];
+            let lag = lags.into_iter().find(|&i| peak(i)).unwrap();
+            69.0 + 12.0 * (SR as f32 / lag as f32 / 440.0).log2()
+        }
+        let db = |e: f32| 10.0 * e.max(1e-9).log10();
+        let sf2_db = |s: &mut Synthesizer, key: u8, vel: u8| {
+            let (mut l, mut r) = (vec![0f32; 1024], vec![0f32; 1024]);
+            s.note_on(0, i32::from(key), i32::from(vel));
+            let e: f32 = (0..BLOCKS)
+                .map(|_| {
+                    s.render(&mut l, &mut r);
+                    l.iter().chain(&r).map(|v| v * v).sum::<f32>()
+                })
+                .sum();
+            s.note_off_all(true);
+            for _ in 0..BLOCKS {
+                s.render(&mut l, &mut r);
+            }
+            db(e)
+        };
+
+        let velocities = [32u8, 48, 64, 80, 96, 112, 127];
+        eprintln!("key  pitch {}", velocities.map(|v| format!("{v:>12}")).join(""));
+        let mut by_velocity = vec![Vec::new(); velocities.len()];
+        for key in 24..=72u8 {
+            let mut row = String::new();
+            let mut previous = f32::MIN;
+            let mut sounded = 0.0;
+            // sfizz streams all but the start of a sample from disk, which
+            // a first, faster-than-real-time note outruns.
+            for &v in &velocities {
+                for _ in 0..4 {
+                    play(&mut inst, key, v);
+                }
+            }
+            for (i, &v) in velocities.iter().enumerate() {
+                let mut energy = 0.0;
+                for _ in 0..8 {
+                    let (e, left) = play(&mut inst, key, v);
+                    energy += e / 8.0;
+                    if v == 96 {
+                        sounded = pitch(&left);
+                    }
+                }
+                let level = db(energy);
+                row.push_str(&format!("{:>6.1}/{:<5.1}", sf2_db(&mut sf2, key, v), level));
+                if (28..=67).contains(&key) {
+                    by_velocity[i].push(level);
+                    assert!(level > previous - 0.5, "key {key} softer at velocity {v} than below it");
+                }
+                previous = level;
+            }
+            eprintln!("{key:>3} {sounded:>6.1} {row}");
+            if (28..=67).contains(&key) {
+                assert!((sounded - f32::from(key)).abs() < 0.5, "key {key} sounds at {sounded:.1}");
+            }
+        }
+        for (v, levels) in velocities.iter().zip(&by_velocity) {
+            let (lo, hi) = levels.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+            eprintln!("velocity {v:>3}: {lo:.1} .. {hi:.1} dB over E1-G4");
+        }
+        let mut diff = Vec::new();
+        for key in 28..=67u8 {
+            for v in [64u8, 80, 96, 112] {
+                let mut energy = 0.0;
+                for _ in 0..8 {
+                    energy += play(&mut inst, key, v).0 / 8.0;
+                }
+                diff.push(db(energy) - sf2_db(&mut sf2, key, v));
+            }
+        }
+        eprintln!("louder than the SoundFont by {:+.1} dB on average", diff.iter().sum::<f32>() / diff.len() as f32);
     }
 }
 
