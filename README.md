@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://otomomusic.app">Website</a> ·
   <a href="https://github.com/hibiki1213/otomo/releases/latest">Download for macOS</a> ·
   <a href="#connect-claude">Connect Claude</a> ·
   <a href="#build-from-source">Build from source</a> ·

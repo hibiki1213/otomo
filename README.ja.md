@@ -7,7 +7,7 @@
 **Claudeサブスクリプションで、音楽が作れる無料のOSS**  
 あなたの隠れた音楽の才能を引き出しましょう。
 
-[macOS 版をダウンロード](https://github.com/hibiki1213/otomo/releases/latest) · [Claude とつなぐ](#claude-とつなぐ) · [ソースからビルド](#ソースからビルド) · [English](README.md)
+[Web サイト](https://otomomusic.app/ja/) · [macOS 版をダウンロード](https://github.com/hibiki1213/otomo/releases/latest) · [Claude とつなぐ](#claude-とつなぐ) · [ソースからビルド](#ソースからビルド) · [English](README.md)
 
 ![MIT License](https://img.shields.io/badge/license-MIT-blue)![macOS 11+, Apple silicon](https://img.shields.io/badge/macOS-11%2B%20%C2%B7%20Apple%20silicon-lightgrey)![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db)
 
