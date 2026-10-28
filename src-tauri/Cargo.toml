@@ -52,7 +52,7 @@ otomo-synth = { path = "crates/synth" }
 # version krilla-svg is built on.
 krilla = { version = "0.8.2", default-features = false }
 krilla-svg = "0.8.1"
-usvg = "0.47.0"
+usvg = "0.48.1"
 ttf-parser = "0.25.1"
 wuff = { version = "0.2.9", default-features = false, features = ["brotli"] }
 base64 = "0.23.1"
