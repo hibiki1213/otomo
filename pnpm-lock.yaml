@@ -36,8 +36,8 @@ importers:
         specifier: 19.3.1
         version: 19.3.1(react@19.3.1)
       smplr:
-        specifier: ^0.26.0
-        version: 0.26.0
+        specifier: ^1.1.0
+        version: 1.1.0
       soundfont2:
         specifier: ^0.5.0
         version: 0.5.0
@@ -432,8 +432,8 @@ packages:
   scheduler@0.28.0:
     resolution: {integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==}
 
-  smplr@0.26.0:
-    resolution: {integrity: sha512-01OLo4+RzHvE52aGx1Gh1uEbarIiLWYOQU+t+nYm3iUT4sADTv+M3SbClo4sjE2Q8Im/eKpxWKZRBD8RR8tAEw==}
+  smplr@1.1.0:
+    resolution: {integrity: sha512-VW2FeDdSgBU3cg9pofUYvXB1Nb0iMXurbAnUlpgWfOklw/3JGP5vEjKdq7qGaEwL8rzQTMjdDu64AqpR2ul1bQ==}
     engines: {node: '>=14.0.0'}
 
   soundfont2@0.5.0:
@@ -751,7 +751,7 @@ snapshots:
 
   scheduler@0.28.0: {}
 
-  smplr@0.26.0: {}
+  smplr@1.1.0: {}
 
   soundfont2@0.5.0: {}
 
